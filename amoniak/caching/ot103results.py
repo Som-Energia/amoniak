@@ -10,7 +10,7 @@ class OT103Caching(OTCaching):
     def __init__(self, empowering_service, mongo_connection):
         super(OT103Caching, self).__init__(empowering_service, 'ot103_results',
                             mongo_connection, 'ot103', 'empowering_error',
-                            'month', 'consumption')
+                            'contractId', 'month', 'consumption')
 
     def get_cached(self, contract, period):
         month_range = 13
