@@ -61,8 +61,12 @@ class OTCaching(object):
             result_period = result[self._period_key]
             contract = result[self._contract_key]
             if self._get(contract, result_period):
-                # Delete cached result to replace it
-                self._delete_cached(contract, result_period)
+                # Do not update already available results. Improve performance
+                # WARNING: That could cause incoherences in results due
+                #          different context in different executions
+                #          Issue already there due lack of atomic results
+                #          management.
+                results['_items'].remove(result)
         for result in results['_items']:
             self._store(result)
 
