@@ -47,6 +47,18 @@ def enqueue_measures(tg_enabled, contracts):
             return
     tasks.enqueue_measures(tg_enabled, contracts_id)
 
+@amoniak.command()
+@click.option('--contracts', default=[])
+def enqueue_sips_measures(contracts):
+    logger = logging.getLogger('amon')
+    logger.info('Enqueuing sips measures')
+    contracts_id = None
+    try:
+        contracts_id = read_list_from_file(contracts, int)
+    except Exception, e:
+            logger.info('Failed loading contracts: {e}'.format(**locals()))
+            return
+    tasks.enqueue_sips_measures(contracts_id)
 
 @amoniak.command()
 @click.option('--tg_enabled', default=True)
