@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import
-from datetime import datetime
+from datetime import datetime,date
 import logging
 import urllib2
 
@@ -10,7 +10,7 @@ from .utils import (
     setup_peek, setup_mongodb, setup_empowering_api, setup_redis,
     sorted_by_key, Popper, setup_queue
 )
-from .amon import AmonConverter, check_response, get_device_serial
+from .amon import AmonConverter, check_response
 import pymongo
 from rq.decorators import job
 from raven import Client
@@ -20,8 +20,10 @@ from empowering.utils import make_local_timestamp
 sentry = Client()
 logger = logging.getLogger('amon')
 
+def enqueue_all_amon_measures(tg_enabled=True, bucket=500):
+    if not tg_enabled:
+        return
 
-def enqueue_all_amon_measures(bucket=500):
     serials = open('serials', 'r')
     for serial in serials:
         meter_name = serial.replace('\n', '').strip()
@@ -40,7 +42,7 @@ def enqueue_all_amon_measures(bucket=500):
         measures_to_push = []
         for idx, measure in enumerate(measures):
             if idx and not idx % bucket:
-                j = push_amon_measures.delay(measures_to_push)
+                j = push_amon_measures.delay(tg_enabled, measures_to_push)
                 logger.info("Job id:%s | %s/%s/%s" % (
                     j.id, meter_name, idx, bucket)
                 )
@@ -48,61 +50,133 @@ def enqueue_all_amon_measures(bucket=500):
             measures_to_push.append(measure['id'])
     mongo.connection.disconnect()
 
-
-def enqueue_measures(bucket=500):
+def enqueue_sips_measures(polisses_ids=[], bucket=500):
     # First get all the contracts that are in sync
     O = setup_peek()
     em = setup_empowering_api()
     # TODO: Que fem amb les de baixa? les agafem igualment? només les que
     # TODO: faci menys de X que estan donades de baixa?
-    pids = O.GiscedataPolissa.search([('etag', '!=', False)])
-    # Comptadors que tingui aquesta pòlissa i que siguin de telegestió
-    cids = O.GiscedataLecturesComptador.search([
-        ('tg_cnc_conn', '=', 1),
-        ('polissa', 'in', pids)
-    ], context={'active_test': False})
+    search_params = [('etag', '!=', False),
+                     ('state', '=', 'activa'),
+                     ('cups.empowering', '=', True)]
+    if isinstance(polisses_ids, list) and polisses_ids:
+        search_params.append(('id', 'in', polisses_ids))
+    else:
+        search_params.append(('comptadors.empowering_last_measure','=', None))
+    pids = O.GiscedataPolissa.search(search_params)
+    popper = Popper(pids)
+    pops = popper.pop(bucket)
+    while pops:
+        j = push_amon_sips_measures.delay(pops)
+        logger.info("Job id:%s | %s/%s" % (
+             j.id, len(pops), len(popper.items))
+        )
+        pops = popper.pop(bucket)
+
+def enqueue_measures(tg_enabled=True, polisses_ids=[], bucket=500):
+    # First get all the contracts that are in sync
+    O = setup_peek()
+    em = setup_empowering_api()
+    # TODO: Que fem amb les de baixa? les agafem igualment? només les que
+    # TODO: faci menys de X que estan donades de baixa?
+    search_params = [('etag', '!=', False),
+                     ('state', '=', 'activa'),
+                     ('cups.empowering', '=', True)]
+    if isinstance(polisses_ids, list) and polisses_ids:
+        search_params.append(('id', 'in', polisses_ids))
+    pids = O.GiscedataPolissa.search(search_params)
+
+    search_params = [('polissa', 'in', pids)]
+    if tg_enabled:
+        search_params.append(('tg_cnc_conn', '=', 1))
+
+    cids = O.GiscedataLecturesComptador.search(search_params, context={'active_test': False})
     fields_to_read = ['name', 'empowering_last_measure']
+
+    popper = Popper([])
     for comptador in O.GiscedataLecturesComptador.read(cids, fields_to_read):
-        tg_name = O.GiscedataLecturesComptador.build_name_tg(comptador['id'])
         search_params = [
-            ('name', '=', tg_name),
-            ('type', '=', 'day'),
-            ('value', '=', 'a'),
-            ('valid', '=', 1),
-            ('period', '=',  0)
+            ('comptador', '=', comptador['id'])
         ]
+        if tg_enabled:
+            tg_name = O.GiscedataLecturesComptador.build_name_tg(comptador['id'])
+            search_params += [
+                ('name', '=', tg_name),
+                ('type', '=', 'day'),
+                ('value', '=', 'a'),
+                ('valid', '=', 1),
+                ('period', '=',  0)]
+
         last_measure = comptador.get('empowering_last_measure')
         if not last_measure:
-            # Pujar totes
-            logger.info("Les pugem totes")
+            logger.info(u"No hi ha lectures. Carregar totes")
+
         else:
             logger.info(u"Última lectura trobada: %s" % last_measure)
-            search_params.append(('date_end', '>', last_measure))
-        measures_ids = O.TgBilling.search(search_params, limit=0, order="date_end asc")
+            if tg_enabled:
+                search_params.append(('date_end', '>', last_measure))
+            else:
+                search_params.append(('write_date', '>', last_measure))
+
+        if tg_enabled:
+            measures_ids = O.TgBilling.search(search_params, limit=0, order="date_end asc")
+        else:
+            # Measurement source type filter
+            origen_to_search = [
+                'Telemesura',
+                'Telemesura corregida',
+                'TPL',
+                'TPL corregida',
+                'Visual',
+                'Visual corregida',
+                'Estimada',
+                'Autolectura'
+            ]
+            origen_ids = O.GiscedataLecturesOrigen.search([('name','in',origen_to_search)])
+            search_params.append(('origen_id', 'in', origen_ids))
+
+            origen_comer_to_search = [
+                'Fitxer de lectures Q1',
+                'Fitxer de factura F1',
+                'Entrada manual',
+                'Oficina Virtual',
+                'Autolectura',
+                'Estimada',
+                'Gestió ATR'
+            ]
+            #origen_comer_ids = O.GiscedataLecturesOrigenComer.search([('name','in',origen_comer_to_search)])
+            #search_params.append(('origen_comer_id', 'in', origen_comer_ids))
+
+            measures_ids = O.GiscedataLecturesLectura.search(search_params, limit=0, order="name asc")
         logger.info("S'han trobat %s mesures per pujar" % len(measures_ids))
-        popper = Popper(measures_ids)
+        popper.push(measures_ids)
+    pops = popper.pop(bucket)
+    while pops:
+        j = push_amon_measures.delay(tg_enabled, pops)
+        logger.info("Job id:%s | %s/%s" % (
+             j.id, len(pops), len(popper.items))
+        )
         pops = popper.pop(bucket)
-        while pops:
-            j = push_amon_measures.delay(pops)
-            logger.info("Job id:%s | %s/%s/%s" % (
-                j.id, tg_name, len(pops), len(popper.items))
-            )
-            pops = popper.pop(bucket)
 
 
-def enqueue_new_contracts(bucket=500):
+def enqueue_new_contracts(tg_enabled, polisses_ids =[], bucket=500):
     search_params = [
-        ('tg_cnc_conn', '=', 1),
-        ('polissa.etag', '=', False)
+        ('polissa.etag', '=', False),
+        ('polissa.cups.empowering', '=', True)
     ]
+    if tg_enabled:
+        search_params.append(('tg_cnc_conn', '=', 1))
+
     em = setup_empowering_api()
     items = em.contracts().get(sort="[('_updated', -1)]")['_items']
     if items:
         from_date = make_local_timestamp(items[0]['_updated'])
         search_params.append(('polissa.create_date', '>', from_date))
+    if isinstance(polisses_ids, list) and polisses_ids:
+        search_params.append(('polissa.id', 'in', polisses_ids))
     O = setup_peek()
     cids = O.GiscedataLecturesComptador.search(search_params,
-        context={'active_test': False}
+        context={'active_test': False} 
     )
     if not cids:
         return
@@ -123,15 +197,22 @@ def enqueue_new_contracts(bucket=500):
         pops = popper.pop(bucket)
 
 
-def enqueue_contracts():
+def enqueue_contracts(tg_enabled, contracts_id=[]):
     O = setup_peek()
     em = setup_empowering_api()
     # Busquem els que hem d'actualitzar
-    polisses_ids = O.GiscedataPolissa.search([('etag', '!=', False)])
+    search_params = [
+        ('state', '=', 'activa'),
+        ('etag', '!=', False),
+        ('cups.empowering', '=', True)
+    ]
+    if isinstance(contracts_id, list) and contracts_id:
+        search_params.append(('id', 'in', contracts_id))
+    polisses_ids = O.GiscedataPolissa.search(search_params)
     if not polisses_ids:
         return
-    for polissa in O.GiscedataPolissa.read(polisses_ids, ['name', 'etag']):
-        modcons = []
+    for polissa in O.GiscedataPolissa.read(polisses_ids, ['name', 'etag', 'cups','modcontractual_activa']):
+        modcons_to_update = []
         is_new_contract = False
         try:
             last_updated = em.contract(polissa['name']).get()['_updated']
@@ -145,21 +226,35 @@ def enqueue_contracts():
             is_new_contract = True
             last_updated = '0'
 
-        w_date = O.GiscedataPolissa.perm_read(polissa['id'])[0]['write_date']
-        if w_date > last_updated and not is_new_contract:
-            # Ara mirem quines modificaciones contractuals hem de pujar
-            polissa = O.GiscedataPolissa.browse(polissa['id'])
-            for modcon in polissa.modcontractuals_ids:
-                perms = modcon.perm_read()
-                if perms['write_date'] > last_updated:
-                    logger.info('La modcontractual %s a actualitzar write_'
+        building_id = O.EmpoweringCupsBuilding.search([('cups_id', '=', polissa['cups'][0])])
+
+        if building_id:
+            w_date = O.EmpoweringCupsBuilding.perm_read(building_id)[0]['write_date']
+            if w_date > last_updated:
+                modcon_id = polissa['modcontractual_activa'][0]
+                modcons_to_update.append(modcon_id)
+
+        if not is_new_contract:
+            modcons_id = O.GiscedataPolissaModcontractual.search([('polissa_id','=',polissa['id'])])
+            for modcon_id in modcons_id:
+                w_date = O.GiscedataPolissaModcontractual.perm_read(modcon_id)[0]['write_date']
+                if w_date > last_updated:
+                    logger.info('La modcontractual %d a actualitzar write_'
                                 'date: %s last_update: %s' % (
-                        modcon.name, perms['write_date'], last_updated))
-                    modcons.append(modcon.id)
-        if modcons:
+                        modcon_id, w_date, last_updated))
+                    modcons_to_update.append(modcon_id)
+                    continue
+
+                profile_id = O.EmpoweringModcontractualProfile.search([
+                            ('modcontractual_id', '=', modcon_id)])
+
+
+        modcons_to_update = list(set(modcons_to_update))
+
+        if modcons_to_update:
             logger.info('Polissa %s actualitzada a %s després de %s' % (
-                polissa.name, w_date, last_updated))
-            push_modcontracts.delay(modcons, polissa.etag)
+                polissa['name'], w_date, last_updated))
+            push_modcontracts.delay(modcons_to_update, polissa['etag'])
         if is_new_contract:
             logger.info("La polissa %s te etag pero ha estat borrada "
                         "d'empowering, es torna a pujar" % polissa['name'])
@@ -168,7 +263,7 @@ def enqueue_contracts():
 
 @job(setup_queue(name='measures'), connection=setup_redis(), timeout=3600)
 @sentry.capture_exceptions
-def push_amon_measures(measures_ids):
+def push_amon_measures(tg_enabled, measures_ids):
     """Pugem les mesures a l'Insight Engine
     """
 
@@ -176,37 +271,127 @@ def push_amon_measures(measures_ids):
     O = setup_peek()
     amon = AmonConverter(O)
     start = datetime.now()
-    mongo = setup_mongodb()
-    collection = mongo['tg_billing']
-    mdbprofiles = collection.find({'id': {'$in': measures_ids}},
-                                  {'name': 1, 'id': 1, '_id': 0,
-                                  'ai': 1, 'r1': 1, 'date_end': 1},
-                                  sort=[('date_end', pymongo.ASCENDING)])
-    profiles = [x for x in mdbprofiles]
+    if tg_enabled:
+        mongo = setup_mongodb()
+        collection = mongo['tg_billing']
+        mdbmeasures = collection.find({'id': {'$in': measures_ids}},
+                                      {'name': 1, 'id': 1, '_id': 0,
+                                      'ai': 1, 'r1': 1, 'date_end': 1},
+                                      sort=[('date_end', pymongo.ASCENDING)])
+        measures = [x for x in mdbmeasures]
+    else:
+        fields_to_read = ['comptador', 'name', 'tipus', 'periode', 'lectura']
+
+        measures = O.GiscedataLecturesLectura.read(measures_ids, fields_to_read)
+        # NOTE: Tricky end_date rename
+        for idx, item in enumerate(measures):
+            measures[idx]['date_end']=measures[idx]['name']
+
     logger.info("Enviant de %s (id:%s) a %s (id:%s)" % (
-        profiles[0]['date_end'], profiles[0]['id'],
-        profiles[-1]['date_end'], profiles[-1]['id']
+        measures[-1]['date_end'], measures[-1]['id'],
+        measures[0]['date_end'], measures[0]['id']
     ))
-    profiles_to_push = amon.profile_to_amon(profiles)
+    measures_to_push = amon.measure_to_amon(measures)
     stop = datetime.now()
     logger.info('Mesures transformades en %s' % (stop - start))
     start = datetime.now()
-    measures = em.amon_measures().create(profiles_to_push)
-    # Save last timestamp
-    last_profile = profiles[-1]
-    serial = get_device_serial(last_profile['name'])
-    cids = O.GiscedataLecturesComptador.search([
-        ('name', '=', serial)
-    ], context={'active_test': False})
-    empowering_last_measure = '%s' % last_profile['date_end']
-    O.GiscedataLecturesComptador.update_empowering_last_measure(
-        cids, empowering_last_measure
-    )
+
+    measures_pushed = em.residential_timeofuse_amon_measures().create(measures_to_push)
+    # TODO: Pending to check whether all measure were properly commited
+
+    if tg_enabled:
+        for measure in measures:
+            from .amon import get_device_serial
+
+            serial = get_device_serial(last_measure['name'])
+            cids = O.GiscedataLecturesComptador.search([('name', '=', serial)], context={'active_test': False})
+            O.GiscedataLecturesComptador.update_empowering_last_measure(cids, '%s' % measure['date_end'])
+        mongo.connection.disconnect()
+    else:
+        for measure in measures:
+          O.GiscedataLecturesComptador.update_empowering_last_measure(
+                [measure['comptador'][0]], '%s' % measure['date_end'] 
+          )
     stop = datetime.now()
     logger.info('Mesures enviades en %s' % (stop - start))
-    logger.info("%s measures creades" % len(measures))
-    mongo.connection.disconnect()
+    logger.info("%s measures creades" % len(measures_pushed))
 
+
+@job(setup_queue(name='sips_measures'), connection=setup_redis(), timeout=3600)
+@sentry.capture_exceptions
+def push_amon_sips_measures(contracts_id):
+    """Pugem les mesures de SIPS a l'Insight Engine
+    """
+
+    em = setup_empowering_api()
+    O = setup_peek()
+    mongo = setup_mongodb()
+    collection = mongo['giscedata_sips_consums']
+    amon = AmonConverter(O)
+    start = datetime.now()
+
+    contracts = O.GiscedataPolissa.read(contracts_id,
+		    ['id', 'name', 'cups', 'data_alta'])
+    for contract in contracts:
+	contract_name = contract['name']
+        contract_id = contract['id']
+        cups = contract['cups'][1]
+        data_alta = contract['data_alta']
+
+        search_params = {'name': cups,
+                'data_final': {'$lt': datetime.strptime(data_alta, '%Y-%m-%d')}}
+        measures = collection.find(
+                search_params,
+                {'id', 'data_inici', 'data_final',
+                    'activa_1', 'activa_2', 'activa_3',
+                    'activa_4', 'activa_5', 'activa_6'},
+                sort=[('data_final', pymongo.ASCENDING)])
+
+        measures = [x for x in measures]
+        if not measures:
+            continue
+
+        logger.info('Contracte %s (%d) amb %d lectures a SIPS' %
+			(contract_name, contract_id, len(measures)))
+
+        meter_name = O.GiscedataPolissa.read(
+                contract['id'],
+                'comptador',
+                {'date': contract['data_alta']})
+
+        if not meter_name:
+            continue
+
+        search_params = [
+                ('polissa', '=', contract_id),
+                ('name', '=', meter_name)
+                ]
+        meter_id = O.GiscedataLecturesComptador.search(
+                search_params, 0, 0, False, {'active_test': False})
+        if not meter_id:
+            continue
+	meter_id = meter_id[0]
+
+        logger.info("Enviant de %s (id:%s) a %s (id:%s)" % (
+            measures[-1]['data_final'], measures[-1]['id'],
+            measures[0]['data_final'], measures[0]['id']
+        ))
+
+        measures_to_push = amon.sips_measure_to_amon(cups, meter_id, measures)
+        stop = datetime.now()
+        logger.info('Mesures transformades en %s' % (stop - start))
+        start = datetime.now()
+
+        measures_pushed = em.residential_timeofuse_amon_measures().create(measures_to_push)
+        ## WARNING: Pending to check whether push was done
+
+        last_measure = O.GiscedataLecturesComptador.read(meter_id, 'empowering_last_measure')
+        if not last_measure:
+            O.GiscedataLecturesComptador.update_empowering_last_measure(
+                    meter_id, measures[-1]['data_final'])
+
+    stop = datetime.now()
+    logger.info('Mesures enviades en %s' % (stop - start))
 
 @job(setup_queue(name='contracts'), connection=setup_redis(), timeout=3600)
 @sentry.capture_exceptions
@@ -241,11 +426,13 @@ def push_contracts(contracts_id):
     if not isinstance(contracts_id, (list, tuple)):
         contracts_id = [contracts_id]
     for pol in O.GiscedataPolissa.read(contracts_id, ['modcontractuals_ids', 'name']):
+        logger.info("Polissa %s" %  pol['name'])
         cid = pol['id']
         upd = []
         first = True
         for modcon_id in reversed(pol['modcontractuals_ids']):
             amon_data = amon.contract_to_amon(cid, {'modcon_id': modcon_id})[0]
+
             if first:
                 response = em.contracts().create(amon_data)
                 first = False
@@ -260,5 +447,3 @@ def push_contracts(contracts_id):
             O.GiscedataPolissa.write(cid, {'etag': etag})
         else:
             logger.info("Polissa id: %s no etag found" % (pol['name']))
-            
-

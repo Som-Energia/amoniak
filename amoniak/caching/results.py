@@ -27,12 +27,14 @@ class OTCaching(object):
 
     def __init__(self, empowering_service, empowering_resource,
                  mongo_connection, ot_code, log_error_collection,
-                 period_key, value_key):
+                 contract_key, period_key, value_key):
         self._empowering_resource = getattr(empowering_service,
                                             empowering_resource)
         self._result_collection = getattr(mongo_connection, ot_code)
         self._log_error_collection = getattr(mongo_connection,
                                              log_error_collection)
+
+        self._contract_key = contract_key
         # Key used in results to specify the period
         self._period_key = period_key
         self._value_key = value_key
@@ -57,9 +59,15 @@ class OTCaching(object):
 
         for result in results['_items']:
             result_period = result[self._period_key]
+            contract = result[self._contract_key]
             if self._get(contract, result_period):
-                # Delete cached result to replace it
-                self._delete_cached(contract, result_period)
+                # Do not update already available results. Improve performance
+                # WARNING: That could cause incoherences in results due
+                #          different context in different executions
+                #          Issue already there due lack of atomic results
+                #          management.
+                results['_items'].remove(result)
+        for result in results['_items']:
             self._store(result)
 
     def validate_contract(self, values, contract, period=None, log_errors=True):
