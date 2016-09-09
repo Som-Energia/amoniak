@@ -366,29 +366,19 @@ def push_amon_sips_measures(contracts_id):
                 ('polissa', '=', contract_id),
                 ('name', '=', meter_name)
                 ]
-        meter_id = O.GiscedataLecturesComptador.search(
-                search_params, 0, 0, False, {'active_test': False})
-        if not meter_id:
-            continue
-	meter_id = meter_id[0]
 
         logger.info("Enviant de %s (id:%s) a %s (id:%s)" % (
             measures[-1]['data_final'], measures[-1]['id'],
             measures[0]['data_final'], measures[0]['id']
         ))
 
-        measures_to_push = amon.sips_measure_to_amon(cups, meter_id, measures)
+        measures_to_push = amon.sips_measure_to_amon(cups, measures)
         stop = datetime.now()
         logger.info('Mesures transformades en %s' % (stop - start))
         start = datetime.now()
 
         measures_pushed = em.residential_timeofuse_amon_measures().create(measures_to_push)
         ## WARNING: Pending to check whether push was done
-
-        last_measure = O.GiscedataLecturesComptador.read(meter_id, 'empowering_last_measure')
-        if not last_measure:
-            O.GiscedataLecturesComptador.update_empowering_last_measure(
-                    meter_id, measures[-1]['data_final'])
 
     stop = datetime.now()
     logger.info('Mesures enviades en %s' % (stop - start))
@@ -431,8 +421,8 @@ def push_contracts(contracts_id):
         upd = []
         first = True
         for modcon_id in reversed(pol['modcontractuals_ids']):
-            amon_data = amon.contract_to_amon(cid, {'modcon_id': modcon_id})[0]
-
+            amon_data = amon.contract_to_amon(cid,
+                    {'modcon_id': modcon_id, 'first':first})[0]
             if first:
                 response = em.contracts().create(amon_data)
                 first = False

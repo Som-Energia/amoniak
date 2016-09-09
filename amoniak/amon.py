@@ -233,7 +233,7 @@ class AmonConverter(object):
                 })
         return res
 
-    def sips_measure_to_amon(self, cups, meter_id, measures):
+    def sips_measure_to_amon(self, cups, measures):
         """Return a list of AMON readinds.
 
         {
@@ -272,7 +272,7 @@ class AmonConverter(object):
             measures = [measures]
 
         mp_uuid = make_uuid('giscedata.cups.ps', cups)
-        device_uuid = make_uuid('giscedata.lectures.comptador', meter_id)
+        device_uuid = mp_uuid
         for measure in measures:
 	    for i in range(1,3):
 	        period = 'P%d' % i
@@ -513,6 +513,8 @@ class AmonConverter(object):
         O = self.O
         if not context:
             context = {}
+	first = context.get('first', None)
+
         res = []
         pol = O.GiscedataPolissa
         modcon_obj = O.GiscedataPolissaModcontractual
@@ -566,26 +568,37 @@ class AmonConverter(object):
                     'profile': self.eprofile_to_amon(profile_id),
                     'customisedServiceParameters': self.service_to_amon(service_id)
                 },
-                'devices': self.device_to_amon(polissa['comptadors'])
+                'devices': self.devices_to_amon(polissa['comptadors'])
             }
+            if first:
+                contract['devices'].append(
+                    self.device_to_amon(
+			'1970-01-01',
+                        modcon['data_inici'],
+                        modcon['cups'][1]))
             cups = self.cups_to_amon(modcon['cups'][0])
             recursive_update(contract, cups)
             res.append(remove_none(contract, context))
         return res
 
-    def device_to_amon(self, device_ids):
+    def devices_to_amon(self, device_ids):
         compt_obj = self.O.GiscedataLecturesComptador
         devices = []
         comptador_fields = ['data_alta', 'data_baixa']
         for comptador in compt_obj.read(device_ids, comptador_fields):
-            devices.append({
-                'dateStart': make_utc_timestamp(comptador['data_alta']),
-                'dateEnd': make_utc_timestamp(comptador['data_baixa']),
-#                'deviceId': make_uuid('giscedata.lectures.comptador',
-#                                      compt_obj.build_name_tg(comptador['id']))
-                'deviceId': make_uuid('giscedata.lectures.comptador', comptador['id'])
-            })
+            devices.append(
+                    self.device_to_amon(
+                        comptador['data_alta'],
+                        comptador['data_baixa'],
+                        comptador['id']))
         return devices
+
+    def device_to_amon(self, start_date, end_date, device_id):
+        return {
+                'dateStart': make_utc_timestamp(start_date),
+                'dateEnd': make_utc_timestamp(end_date),
+                'deviceId': make_uuid('giscedata.lectures.comptador', device_id)
+            }
 
     def cups_to_amon(self, cups_id):
         cups_obj = self.O.GiscedataCupsPs
