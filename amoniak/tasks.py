@@ -172,8 +172,13 @@ def enqueue_new_contracts(tg_enabled, polisses_ids =[], bucket=500):
     if items:
         from_date = make_local_timestamp(items[0]['_updated'])
         search_params.append(('polissa.create_date', '>', from_date))
-    if isinstance(polisses_ids, list) and polisses_ids:
-        search_params.append(('polissa.id', 'in', polisses_ids))
+
+    # NOTE: Enable to force 180 days backwards check instead of online checking
+    #from_date = (date.today() - datetime.timedelta(days=180)).strftime('%Y-%m-%d')
+    #search_params.append(('polissa.create_date', '>', from_date))
+    #if isinstance(polisses_ids, list) and polisses_ids:
+    #    search_params.append(('polissa.id', 'in', polisses_ids))
+
     O = setup_peek()
     cids = O.GiscedataLecturesComptador.search(search_params,
         context={'active_test': False} 
