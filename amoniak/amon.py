@@ -4,6 +4,7 @@ from __future__ import absolute_import
 from hashlib import sha1
 import json
 import logging
+from datetime import datetime
 
 from .cache import CUPS_CACHE, CUPS_UUIDS
 from .utils import recursive_update
@@ -429,6 +430,108 @@ class AmonConverter(object):
         return remove_none(null_to_none({ field: service[field] for field in fields_to_read}))
 
 
+    def report_to_amon(self, date_start, partner_id):
+        """Convert report to AMON.
+
+        {
+            "language": "ca_ES",
+            "initialMonth": "201701"
+        }
+        """
+        O = self.O
+        partner_obj = O.ResPartner
+        partner = partner_obj.read(partner_id, ['lang'])
+
+        initial_month = datetime.strptime(date_start, '%Y-%m-%d').strftime('%Y%m')
+        return remove_none({
+            "language": partner['lang'],
+            "initial_month": initial_month,
+            })
+
+    def find_changes(self, modcons_id, field):
+        O = self.O
+        modcon_obj = O.GiscedataPolissaModcontractual
+        fields = ['data_inici', 'data_final', 'potencia', 'tarifa']
+
+        modcons = modcon_obj.read(modcons_id, fields)
+        modcons = sorted(modcons, key=lambda k: datetime.strptime(k['data_inici'], '%Y-%m-%d'))
+
+        prev_ = modcons[0]
+        modcons_ = []
+        for next_ in modcons[1:]:
+            if prev_[field] != next_[field]:
+                modcons_.append(prev_)
+                prev_ = next_
+            else:
+                prev_['data_final'] = next_['data_final']
+        modcons_.append(prev_)
+        return modcons_
+
+    def tariff_to_amon(self, modcons_id):
+        """ Convert tariff to AMON.
+        "tariff_": {
+          "tariffId": "tariffID-123",
+          "dateStart": "2014-10-11T00:00:00Z",
+          "dateEnd": null,
+        }
+        """
+        modcon = self.find_changes(modcons_id, 'tarifa')[-1]
+        return remove_none({
+          "tariffId": modcon['tarifa'][1],
+          "dateStart": make_utc_timestamp(modcon['data_inici']),
+          "dateEnd": make_utc_timestamp(modcon['data_final'])
+        })
+
+    def power_to_amon(self, modcons_id):
+        """ Convert power to AMON.
+        "power_": {
+          "power": 123,
+          "dateStart": "2014-10-11T00:00:00Z",
+          "dateEnd": null,
+        }
+        """
+        modcon = self.find_changes(modcons_id, 'potencia')[-1]
+        return remove_none({
+          "power": int(modcon['potencia'] * 1000),
+          "dateStart": make_utc_timestamp(modcon['data_inici']),
+          "dateEnd": make_utc_timestamp(modcon['data_final'])
+        })
+
+    def tariffHistory_to_amon(self, modcons_id):
+        """ Convert tariffHistory to AMON.
+        "tariffHistory": [
+          {
+            "tariffId": "tariffID-122",
+            "dateStart": "2013-10-11T16:37:05Z",
+            "dateEnd": "2014-10-10T23:59:59Z"
+          }
+        ]
+        """
+        return [
+            {
+                "tariffId": modcon['tarifa'][1],
+                "dateStart": make_utc_timestamp(modcon['data_inici']),
+                "dateEnd": make_utc_timestamp(modcon['data_final'])
+            }
+            for modcon in self.find_changes(modcons_id, 'tarifa')[:-1]]
+
+    def powerHistory_to_amon(self, modcons_id):
+        """ Convert powerHistory to AMON.
+        "powerHistory": [
+          {
+            "power": 122,
+            "dateStart": "2013-10-11T16:37:05Z",
+            "dateEnd": "2014-10-10T23:59:59Z"
+          }
+        ]
+        """
+        return [
+            {
+                "power": int(modcon['potencia'] * 1000),
+                "dateStart": make_utc_timestamp(modcon['data_inici']),
+                "dateEnd": make_utc_timestamp(modcon['data_final'])
+            }
+            for modcon in self.find_changes(modcons_id, 'potencia')[:-1]]
 
     def contract_to_amon(self, contract_ids, context=None):
         """Converts contracts to AMON.
@@ -438,6 +541,18 @@ class AmonConverter(object):
           "payerId": "payerId-123",
           "signerId": "signerId-123",
           "power": 123,
+          "power_": {
+            "power": 123,
+            "dateStart": "2014-10-11T00:00:00Z",
+            "dateEnd": null,
+          },
+          "powerHistory": [
+            {
+              "power": 122,
+              "dateStart": "2013-10-11T16:37:05Z",
+              "dateEnd": "2014-10-10T23:59:59Z"
+            }
+          ],
           "dateStart": "2013-10-11T16:37:05Z",
           "dateEnd": null,
           "climaticZone": "climaticZoneId-123",
@@ -445,6 +560,18 @@ class AmonConverter(object):
           "version": 1,
           "activityCode": "activityCode",
           "tariffId": "tariffID-123",
+          "tariff_": {
+            "tariffId": "tariffID-123",
+            "dateStart": "2014-10-11T00:00:00Z",
+            "dateEnd": null,
+          },
+          "tariffHistory": [
+            {
+              "tariffId": "tariffID-122",
+              "dateStart": "2013-10-11T16:37:05Z",
+              "dateEnd": "2014-10-10T23:59:59Z"
+            }
+          ],
           "meteringPointId": "c1759810-90f3-012e-0404-34159e211070",
           "experimentalGroupUser": True,
           "experimentalGroupUserTest": True,
@@ -513,7 +640,7 @@ class AmonConverter(object):
         O = self.O
         if not context:
             context = {}
-	first = context.get('first', None)
+        first = context.get('first', None)
 
         res = []
         pol = O.GiscedataPolissa
@@ -528,7 +655,7 @@ class AmonConverter(object):
 
         if not hasattr(contract_ids, '__iter__'):
             contract_ids = [contract_ids]
-        fields_to_read = ['modcontractual_activa', 'name', 'cups', 'comptadors', 'state']
+        fields_to_read = ['modcontractual_activa', 'modcontractuals_ids', 'name', 'cups', 'comptadors', 'state', 'data_alta']
         for polissa in pol.read(contract_ids, fields_to_read):
             if polissa['state'] in ('esborrany', 'validar'):
                 continue
@@ -542,6 +669,7 @@ class AmonConverter(object):
                 logger.error("Problema amb la polissa %s" % polissa['name'])
                 continue
             modcon = modcon_obj.read(modcon_id)
+            modcons_id = polissa['modcontractuals_ids']
 
             def  get_first(x):
                 return x[0] if x else None
@@ -554,11 +682,15 @@ class AmonConverter(object):
             contract = {
                 'ownerId': make_uuid('res.partner', modcon['titular'][0]),
                 'payerId': make_uuid('res.partner', modcon['pagador'][0]),
-                'dateStart': make_utc_timestamp(modcon['data_inici']),
+                'dateStart': make_utc_timestamp(polissa['data_alta']),
                 'dateEnd': make_utc_timestamp(modcon['data_final']),
                 'contractId': polissa['name'],
                 'tariffId': modcon['tarifa'][1],
+                'tariff_': self.tariff_to_amon(modcons_id),
+                'tariffHistory': self.tariffHistory_to_amon(modcons_id),
                 'power': int(modcon['potencia'] * 1000),
+                'power_': self.power_to_amon(modcons_id),
+                'powerHistory': self.powerHistory_to_amon(modcons_id),
                 'version': int(modcon['name']),
                 'climaticZone': self.cups_to_climaticZone(modcon['cups'][0]),
                 'activityCode': modcon['cnae'] and modcon['cnae'][1] or None,
@@ -568,12 +700,13 @@ class AmonConverter(object):
                     'profile': self.eprofile_to_amon(profile_id),
                     'customisedServiceParameters': self.service_to_amon(service_id)
                 },
-                'devices': self.devices_to_amon(polissa['comptadors'])
+                'devices': self.devices_to_amon(polissa['comptadors']),
+                'report': self.report_to_amon(polissa['data_alta'], modcon['pagador'][0])
             }
             if first:
                 contract['devices'].append(
                     self.device_to_amon(
-			'1970-01-01',
+                       '1970-01-01',
                         modcon['data_inici'],
                         modcon['cups'][1]))
             cups = self.cups_to_amon(modcon['cups'][0])
