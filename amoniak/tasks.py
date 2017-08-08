@@ -166,6 +166,10 @@ def enqueue_new_contracts(tg_enabled, polisses_ids =[], bucket=500):
     ]
     if tg_enabled:
         search_params.append(('tg_cnc_conn', '=', 1))
+    residential_tariffs = [
+        '2.0A', '2.0DHA', '2.0DHS', '2.1A', '2.1DHA', '2.1DHS'
+    ]
+    search_params.append(('tarifa.name', 'in', residential_tariffs))
 
     em = setup_empowering_api()
     items = em.contracts().get(sort="[('_updated', -1)]")['_items']
