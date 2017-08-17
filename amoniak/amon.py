@@ -513,7 +513,7 @@ class AmonConverter(object):
                 "dateStart": make_utc_timestamp(modcon['data_inici']),
                 "dateEnd": make_utc_timestamp(modcon['data_final'])
             }
-            for modcon in self.find_changes(modcons_id, 'tarifa')[:-1]]
+            for modcon in self.find_changes(modcons_id, 'tarifa')]
 
     def powerHistory_to_amon(self, modcons_id):
         """ Convert powerHistory to AMON.
@@ -531,7 +531,7 @@ class AmonConverter(object):
                 "dateStart": make_utc_timestamp(modcon['data_inici']),
                 "dateEnd": make_utc_timestamp(modcon['data_final'])
             }
-            for modcon in self.find_changes(modcons_id, 'potencia')[:-1]]
+            for modcon in self.find_changes(modcons_id, 'potencia')]
 
     def contract_to_amon(self, contract_ids, context=None):
         """Converts contracts to AMON.
