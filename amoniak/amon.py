@@ -655,7 +655,8 @@ class AmonConverter(object):
 
         if not hasattr(contract_ids, '__iter__'):
             contract_ids = [contract_ids]
-        fields_to_read = ['modcontractual_activa', 'modcontractuals_ids', 'name', 'cups', 'comptadors', 'state', 'data_alta']
+        fields_to_read = ['modcontractual_activa', 'modcontractuals_ids',
+            'name', 'cups', 'comptadors', 'state', 'data_alta', 'data_baixa']
         for polissa in pol.read(contract_ids, fields_to_read):
             if polissa['state'] in ('esborrany', 'validar'):
                 continue
@@ -683,7 +684,7 @@ class AmonConverter(object):
                 'ownerId': make_uuid('res.partner', modcon['titular'][0]),
                 'payerId': make_uuid('res.partner', modcon['pagador'][0]),
                 'dateStart': make_utc_timestamp(polissa['data_alta']),
-                'dateEnd': make_utc_timestamp(modcon['data_final']),
+                'dateEnd': make_utc_timestamp(polissa['data_baixa']),
                 'contractId': polissa['name'],
                 'tariffId': modcon['tarifa'][1],
                 'tariff_': self.tariff_to_amon(modcons_id),
