@@ -79,24 +79,24 @@ class AmonConverter(object):
             "meteringPointId": "c1759810-90f3-012e-0404-34159e211070",
             "readings": [
                 {
-                    "type_": "electricityConsumption",
+                    "type_": "touElectricityConsumption",
                     "unit": "kWh",
                     "period": "INSTANT",
                 },
                 {
-                    "type_": "electricityKiloVoltAmpHours",
+                    "type_": "touElectricityKiloVoltAmpHours",
                     "unit": "kVArh",
                     "period": "INSTANT",
                 }
             ],
             "measurements": [
                 {
-                    "type_": "electricityConsumption",
+                    "type_": "touElectricityConsumption",
                     "timestamp": "2010-07-02T11:39:09Z", # UTC
                     "value": 7
                 },
                 {
-                    "type_": "electricityKiloVoltAmpHours",
+                    "type_": "touElectricityKiloVoltAmpHours",
                     "timestamp": "2010-07-02T11:44:09Z", # UTC
                     "value": 6
                 }
@@ -118,24 +118,24 @@ class AmonConverter(object):
                 "meteringPointId": mp_uuid,
                 "readings": [
                     {
-                        "type":  "electricityConsumption",
+                        "type":  "touElectricityConsumption",
                         "unit": "%sWh" % UNITS[profile.get('magn', 1000)],
                         "period": "CUMULATIVE",
                     },
                     {
-                        "type": "electricityKiloVoltAmpHours",
+                        "type": "touElectricityKiloVoltAmpHours",
                         "unit": "%sVArh" % UNITS[profile.get('magn', 1000)],
                         "period": "CUMULATIVE",
                     }
                 ],
                 "measurements": [
                     {
-                        "type": "electricityConsumption",
+                        "type": "touElectricityConsumption",
                         "timestamp": make_utc_timestamp(profile['date_end']),
                         "value": float(profile['ai'])
                     },
                     {
-                        "type": "electricityKiloVoltAmpHours",
+                        "type": "touElectricityKiloVoltAmpHours",
                         "timestamp": make_utc_timestamp(profile['date_end']),
                         "value": float(profile['r1'])
                     }
@@ -152,24 +152,24 @@ class AmonConverter(object):
             "meteringPointId": "c1759810-90f3-012e-0404-34159e211070",
             "readings": [
                 {
-                    "type_": "electricityConsumption",
+                    "type_": "touElectricityConsumption",
                     "unit": "kWh",
                     "period": "INSTANT",
                 },
                 {
-                    "type_": "electricityKiloVoltAmpHours",
+                    "type_": "touElectricityKiloVoltAmpHours",
                     "unit": "kVArh",
                     "period": "INSTANT",
                 }
             ],
             "measurements": [
                 {
-                    "type_": "electricityConsumption",
+                    "type_": "touElectricityConsumption",
                     "timestamp": "2010-07-02T11:39:09Z", # UTC
                     "value": 7
                 },
                 {
-                    "type_": "electricityKiloVoltAmpHours",
+                    "type_": "touElectricityKiloVoltAmpHours",
                     "timestamp": "2010-07-02T11:44:09Z", # UTC
                     "value": 6
                 }
@@ -194,14 +194,14 @@ class AmonConverter(object):
                     "meteringPointId": mp_uuid,
                     "readings": [
                         {
-                            "type":  "electricityConsumption",
+                            "type":  "touElectricityConsumption",
                             "unit": "%sWh" % UNITS[measure.get('magn', 1000)],
                             "period": "CUMULATIVE",
                         }
                     ],
                     "measurements": [
                         {
-                            "type": "electricityConsumption",
+                            "type": "touElectricityConsumption",
                             "timestamp": make_utc_timestamp(measure['date_end']),
                             "values":
                                 {
@@ -217,7 +217,7 @@ class AmonConverter(object):
                     "meteringPointId": mp_uuid,
                     "readings": [
                         {
-                            "type": "electricityKiloVoltAmpHours",
+                            "type": "touElectricityKiloVoltAmpHours",
                             "unit": "%sVArh" % UNITS[measure.get('magn', 1000)],
                             "period": "CUMULATIVE",
                             "dailyPeriod": period
@@ -225,7 +225,7 @@ class AmonConverter(object):
                     ],
                     "measurements": [
                         {
-                            "type": "electricityKiloVoltAmpHours",
+                            "type": "touElectricityKiloVoltAmpHours",
                             "timestamp": make_utc_timestamp(measure['date_end']),
                             "value": float(measure['lectura']),
                             "dailyPeriod": period
@@ -243,24 +243,24 @@ class AmonConverter(object):
             "meteringPointId": "c1759810-90f3-012e-0404-34159e211070",
             "readings": [
                 {
-                    "type_": "electricityConsumption",
+                    "type_": "touElectricityConsumption",
                     "unit": "kWh",
                     "period": "INSTANT",
                 },
                 {
-                    "type_": "electricityKiloVoltAmpHours",
+                    "type_": "touElectricityKiloVoltAmpHours",
                     "unit": "kVArh",
                     "period": "INSTANT",
                 }
             ],
             "measurements": [
                 {
-                    "type_": "electricityConsumption",
+                    "type_": "touElectricityConsumption",
                     "timestamp": "2010-07-02T11:39:09Z", # UTC
                     "value": 7
                 },
                 {
-                    "type_": "electricityKiloVoltAmpHours",
+                    "type_": "touElectricityKiloVoltAmpHours",
                     "timestamp": "2010-07-02T11:44:09Z", # UTC
                     "value": 6
                 }
@@ -283,14 +283,14 @@ class AmonConverter(object):
 	            "meteringPointId": mp_uuid,
 	            "readings": [
 	                {
-	                    "type":  "electricityConsumption",
+	                    "type":  "touElectricityConsumption",
 	                    "unit": "%sWh" % UNITS[measure.get('magn', 1000)],
 	                    "period": "INSTANT",
 	                }
 	            ],
 	            "measurements": [
 	                {
-	                    "type": "electricityConsumption",
+	                    "type": "touElectricityConsumption",
 	                    "timestamp": make_utc_timestamp(measure['data_final']),
 	                    "values":
 	                        {
