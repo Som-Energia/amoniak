@@ -234,73 +234,6 @@ class AmonConverter(object):
                 })
         return res
 
-    def sips_measure_to_amon(self, cups, measures):
-        """Return a list of AMON readinds.
-
-        {
-            "utilityId": "Utility Id",
-            "deviceId": "c1810810-0381-012d-25a8-0017f2cd3574",
-            "meteringPointId": "c1759810-90f3-012e-0404-34159e211070",
-            "readings": [
-                {
-                    "type_": "touElectricityConsumption",
-                    "unit": "kWh",
-                    "period": "INSTANT",
-                },
-                {
-                    "type_": "touElectricityKiloVoltAmpHours",
-                    "unit": "kVArh",
-                    "period": "INSTANT",
-                }
-            ],
-            "measurements": [
-                {
-                    "type_": "touElectricityConsumption",
-                    "timestamp": "2010-07-02T11:39:09Z", # UTC
-                    "value": 7
-                },
-                {
-                    "type_": "touElectricityKiloVoltAmpHours",
-                    "timestamp": "2010-07-02T11:44:09Z", # UTC
-                    "value": 6
-                }
-            ]
-        }
-        """
-        O = self.O
-        res = []
-        if not hasattr(measures, '__iter__'):
-            measures = [measures]
-
-        mp_uuid = make_uuid('giscedata.cups.ps', cups)
-        device_uuid = mp_uuid
-        for measure in measures:
-	    for i in range(1,3):
-	        period = 'P%d' % i
-	        period_key = 'activa_%d' % i
-	        res.append({
-	            "deviceId": device_uuid,
-	            "meteringPointId": mp_uuid,
-	            "readings": [
-	                {
-	                    "type":  "touElectricityConsumption",
-	                    "unit": "%sWh" % UNITS[measure.get('magn', 1000)],
-	                    "period": "INSTANT",
-	                }
-	            ],
-	            "measurements": [
-	                {
-	                    "type": "touElectricityConsumption",
-	                    "timestamp": make_utc_timestamp(measure['data_final']),
-	                    "values":
-	                        {
-	                            period: float(measure[period_key])
-	                        }
-	                }
-	            ]
-	        })
-        return res
-
     def device_to_amon(self, device_ids):
         """Convert a device to AMON.
 
@@ -704,12 +637,6 @@ class AmonConverter(object):
                 'devices': self.devices_to_amon(polissa['comptadors']),
                 'report': self.report_to_amon(polissa['data_alta'], modcon['pagador'][0])
             }
-            if first:
-                contract['devices'].append(
-                    self.device_to_amon(
-                       '1970-01-01',
-                        modcon['data_inici'],
-                        modcon['cups'][1]))
             cups = self.cups_to_amon(modcon['cups'][0])
             recursive_update(contract, cups)
             res.append(remove_none(contract, context))

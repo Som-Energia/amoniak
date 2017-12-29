@@ -50,29 +50,6 @@ def enqueue_all_amon_measures(tg_enabled=True, bucket=500):
             measures_to_push.append(measure['id'])
     mongo.connection.disconnect()
 
-def enqueue_sips_measures(polisses_ids=[], bucket=500):
-    # First get all the contracts that are in sync
-    O = setup_peek()
-    em = setup_empowering_api()
-    # TODO: Que fem amb les de baixa? les agafem igualment? només les que
-    # TODO: faci menys de X que estan donades de baixa?
-    search_params = [('etag', '!=', False),
-                     ('state', '=', 'activa'),
-                     ('cups.empowering', '=', True)]
-    if isinstance(polisses_ids, list) and polisses_ids:
-        search_params.append(('id', 'in', polisses_ids))
-    else:
-        search_params.append(('comptadors.empowering_last_measure','=', None))
-    pids = O.GiscedataPolissa.search(search_params)
-    popper = Popper(pids)
-    pops = popper.pop(bucket)
-    while pops:
-        j = push_amon_sips_measures.delay(pops)
-        logger.info("Job id:%s | %s/%s" % (
-             j.id, len(pops), len(popper.items))
-        )
-        pops = popper.pop(bucket)
-
 def enqueue_measures(tg_enabled=True, polisses_ids=[], bucket=500):
     # First get all the contracts that are in sync
     O = setup_peek()
@@ -330,72 +307,6 @@ def push_amon_measures(tg_enabled, measures_ids):
     logger.info('Mesures enviades en %s' % (stop - start))
     logger.info("%s measures creades" % len(measures_pushed))
 
-
-@job(setup_queue(name='sips_measures'), connection=setup_redis(), timeout=3600)
-@sentry.capture_exceptions
-def push_amon_sips_measures(contracts_id):
-    """Pugem les mesures de SIPS a l'Insight Engine
-    """
-
-    em = setup_empowering_api()
-    O = setup_peek()
-    mongo = setup_mongodb()
-    collection = mongo['giscedata_sips_consums']
-    amon = AmonConverter(O)
-    start = datetime.now()
-
-    contracts = O.GiscedataPolissa.read(contracts_id,
-		    ['id', 'name', 'cups', 'data_alta'])
-    for contract in contracts:
-	contract_name = contract['name']
-        contract_id = contract['id']
-        cups = contract['cups'][1]
-        data_alta = contract['data_alta']
-
-        search_params = {'name': cups,
-                'data_final': {'$lt': datetime.strptime(data_alta, '%Y-%m-%d')}}
-        measures = collection.find(
-                search_params,
-                {'id', 'data_inici', 'data_final',
-                    'activa_1', 'activa_2', 'activa_3',
-                    'activa_4', 'activa_5', 'activa_6'},
-                sort=[('data_final', pymongo.ASCENDING)])
-
-        measures = [x for x in measures]
-        if not measures:
-            continue
-
-        logger.info('Contracte %s (%d) amb %d lectures a SIPS' %
-			(contract_name, contract_id, len(measures)))
-
-        meter_name = O.GiscedataPolissa.read(
-                contract['id'],
-                'comptador',
-                {'date': contract['data_alta']})
-
-        if not meter_name:
-            continue
-
-        search_params = [
-                ('polissa', '=', contract_id),
-                ('name', '=', meter_name)
-                ]
-
-        logger.info("Enviant de %s (id:%s) a %s (id:%s)" % (
-            measures[-1]['data_final'], measures[-1]['id'],
-            measures[0]['data_final'], measures[0]['id']
-        ))
-
-        measures_to_push = amon.sips_measure_to_amon(cups, measures)
-        stop = datetime.now()
-        logger.info('Mesures transformades en %s' % (stop - start))
-        start = datetime.now()
-
-        measures_pushed = em.residential_timeofuse_amon_measures().create(measures_to_push)
-        ## WARNING: Pending to check whether push was done
-
-    stop = datetime.now()
-    logger.info('Mesures enviades en %s' % (stop - start))
 
 @job(setup_queue(name='contracts'), connection=setup_redis(), timeout=3600)
 @sentry.capture_exceptions
