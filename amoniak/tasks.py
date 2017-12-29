@@ -122,17 +122,22 @@ def enqueue_measures(tg_enabled=True, polisses_ids=[], bucket=500):
             measures_ids = O.TgBilling.search(search_params, limit=0, order="date_end asc")
         else:
             # Measurement source type filter
-            origen_to_search = [
-                'Telemesura',
-                'Telemesura corregida',
-                'TPL',
-                'TPL corregida',
-                'Visual',
-                'Visual corregida',
-                'Estimada',
-                'Autolectura'
-            ]
-            origen_ids = O.GiscedataLecturesOrigen.search([('name','in',origen_to_search)])
+            #Name                               codi   subcodi   active
+            #----------------------------------+------+---------+--------
+            #Telemesura                        | 10   | 00      | t
+            #Telemesura corregida              | 11   | 00      | f
+            #TPL                               | 20   | 00      | t
+            #TPL corregida                     | 21   | 00      | f
+            #Visual                            | 30   | 00      | t
+            #Visual corregida                  | 31   | 00      | f
+            #Estimada                          | 40   | 00      | t
+            #Estimada amb històric             | 40   | 01      | t
+            #Estimada amb factor dutilització  | 40   | 02      | t
+            #Autolectura                       | 50   | 00      | t
+            #Telegestió                        | 60   | 00      | t
+            #Sense Lectura                     | 99   | 00      | t
+            origen_to_search = ['10','11','20','21','30','31','40','50','60']
+            origen_ids = O.GiscedataLecturesOrigen.search([('codi','in',origen_to_search)])
             search_params.append(('origen_id', 'in', origen_ids))
 
             origen_comer_to_search = [
