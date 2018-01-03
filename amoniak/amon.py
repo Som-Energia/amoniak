@@ -375,10 +375,10 @@ class AmonConverter(object):
         partner_obj = O.ResPartner
         partner = partner_obj.read(partner_id, ['lang'])
 
-        initial_month = datetime.strptime(date_start, '%Y-%m-%d').strftime('%Y%m')
+        initial_month = int(datetime.strptime(date_start, '%Y-%m-%d').strftime('%Y%m'))
         return remove_none({
             "language": partner['lang'],
-            "initial_month": initial_month,
+            "initialMonth": initial_month,
             })
 
     def find_changes(self, modcons_id, field):
