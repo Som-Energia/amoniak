@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import
-from datetime import datetime,date
+from datetime import datetime,date,timedelta
 import logging
 import urllib2
 
@@ -154,16 +154,18 @@ def enqueue_new_contracts(tg_enabled, polisses_ids =[], bucket=500):
     search_params.append(('tarifa.name', 'in', residential_tariffs))
 
     em = setup_empowering_api()
-    items = em.contracts().get(sort="[('_updated', -1)]")['_items']
-    if items:
-        from_date = make_local_timestamp(items[0]['_updated'])
-        search_params.append(('polissa.create_date', '>', from_date))
 
-    # NOTE: Enable to force 180 days backwards check instead of online checking
-    #from_date = (date.today() - datetime.timedelta(days=180)).strftime('%Y-%m-%d')
-    #search_params.append(('polissa.create_date', '>', from_date))
-    #if isinstance(polisses_ids, list) and polisses_ids:
-    #    search_params.append(('polissa.id', 'in', polisses_ids))
+    # NOTE: Remove online update, use deferred one
+    #items = em.contracts().get(sort="[('_updated', -1)]")['_items']
+    #if items:
+    #    from_date = make_local_timestamp(items[0]['_updated'])
+    #    search_params.append(('polissa.create_date', '>', from_date))
+
+    # Enable to force 180 days backwards check instead of online checking
+    from_date = (date.today() - timedelta(days=180)).strftime('%Y-%m-%d')
+    search_params.append(('polissa.create_date', '<', from_date))
+    if isinstance(polisses_ids, list) and polisses_ids:
+        search_params.append(('polissa.id', 'in', polisses_ids))
 
     O = setup_peek()
     cids = O.GiscedataLecturesComptador.search(search_params,
