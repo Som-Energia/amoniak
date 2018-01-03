@@ -151,7 +151,7 @@ def enqueue_new_contracts(tg_enabled, polisses_ids =[], bucket=500):
     residential_tariffs = [
         '2.0A', '2.0DHA', '2.0DHS', '2.1A', '2.1DHA', '2.1DHS'
     ]
-    search_params.append(('tarifa.name', 'in', residential_tariffs))
+    search_params.append(('polissa.tarifa.name', 'in', residential_tariffs))
 
     em = setup_empowering_api()
 
