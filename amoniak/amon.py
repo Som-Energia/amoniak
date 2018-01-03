@@ -627,7 +627,7 @@ class AmonConverter(object):
                 'powerHistory': self.powerHistory_to_amon(modcons_id),
                 'version': int(modcon['name']),
                 'climaticZone': self.cups_to_climaticZone(modcon['cups'][0]),
-                'activityCode': modcon['cnae'] and modcon['cnae'][1] or None,
+                'activityCode': modcon['cnae'] and modcon['cnae'][1].split(' - ')[0] or None,
                 'customer': {
                     'customerId': make_uuid('res.partner', modcon['titular'][0]),
                     'buildingData': self.building_to_amon(building_id),
