@@ -277,8 +277,11 @@ def push_amon_measures(tg_enabled, measures_ids):
         fields_to_read = ['comptador', 'name', 'tipus', 'periode', 'lectura']
 
         measures = O.GiscedataLecturesLectura.read(measures_ids, fields_to_read)
-        # NOTE: Tricky end_date rename
+        # NOTE: Tricky write_date and end_date rename
         for idx, item in enumerate(measures):
+            measure_id = item['id']
+            measures[idx]['write_date'] = \
+                O.GiscedataLecturesLectura.perm_read(measure_id)[0]['write_date']
             measures[idx]['date_end']=measures[idx]['name']
 
     logger.info("Enviant de %s (id:%s) a %s (id:%s)" % (
@@ -299,12 +302,12 @@ def push_amon_measures(tg_enabled, measures_ids):
 
             serial = get_device_serial(last_measure['name'])
             cids = O.GiscedataLecturesComptador.search([('name', '=', serial)], context={'active_test': False})
-            O.GiscedataLecturesComptador.update_empowering_last_measure(cids, '%s' % measure['date_end'])
+            O.GiscedataLecturesComptador.update_empowering_last_measure(cids, '%s' % measure['write_date'])
         mongo.connection.disconnect()
     else:
         for measure in measures:
           O.GiscedataLecturesComptador.update_empowering_last_measure(
-                [measure['comptador'][0]], '%s' % measure['date_end'] 
+                [measure['comptador'][0]], '%s' % measure['write_date']
           )
     stop = datetime.now()
     logger.info('Mesures enviades en %s' % (stop - start))
