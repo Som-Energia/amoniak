@@ -60,7 +60,7 @@ def enqueue_measures(tg_enabled=True, polisses_ids=[], bucket=500):
                      ('state', '=', 'activa'),
                      ('cups.empowering', '=', True)]
     if isinstance(polisses_ids, list) and polisses_ids:
-        search_params.append(('nam', 'in', polisses_ids))
+        search_params.append(('name', 'in', polisses_ids))
     pids = O.GiscedataPolissa.search(search_params)
 
     search_params = [('polissa', 'in', pids)]
