@@ -41,7 +41,7 @@ def enqueue_measures(tg_enabled, contracts):
     logger.info('Enqueuing measures')
     contracts_id = None
     try:
-        contracts_id = read_list_from_file(contracts, int)
+        contracts_id = read_list_from_file(contracts, str)
     except Exception, e:
             logger.info('Failed loading contracts: {e}'.format(**locals()))
             return
@@ -56,7 +56,7 @@ def enqueue_contracts(tg_enabled, contracts):
     logger.info('Enqueuing updated contracts')
     contracts_id = None
     try:
-        contracts_id = read_list_from_file(contracts, int)
+        contracts_id = read_list_from_file(contracts, str)
     except Exception, e:
             logger.info('Failed loading contracts: {e}'.format(**locals()))
             return

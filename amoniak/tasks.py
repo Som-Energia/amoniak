@@ -60,7 +60,7 @@ def enqueue_measures(tg_enabled=True, polisses_ids=[], bucket=500):
                      ('state', '=', 'activa'),
                      ('cups.empowering', '=', True)]
     if isinstance(polisses_ids, list) and polisses_ids:
-        search_params.append(('id', 'in', polisses_ids))
+        search_params.append(('nam', 'in', polisses_ids))
     pids = O.GiscedataPolissa.search(search_params)
 
     search_params = [('polissa', 'in', pids)]
@@ -165,7 +165,7 @@ def enqueue_new_contracts(tg_enabled, polisses_ids =[], bucket=500):
     from_date = (date.today() - timedelta(days=180)).strftime('%Y-%m-%d')
     search_params.append(('polissa.create_date', '<', from_date))
     if isinstance(polisses_ids, list) and polisses_ids:
-        search_params.append(('polissa.id', 'in', polisses_ids))
+        search_params.append(('polissa.name', 'in', polisses_ids))
 
     O = setup_peek()
     cids = O.GiscedataLecturesComptador.search(search_params,
