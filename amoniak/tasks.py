@@ -201,7 +201,7 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
         ('cups.empowering', '=', True)
     ]
     if isinstance(contracts_id, list) and contracts_id:
-        search_params.append(('id', 'in', contracts_id))
+        search_params.append(('name', 'in', contracts_id))
     polisses_ids = O.GiscedataPolissa.search(search_params)
     if not polisses_ids:
         return
