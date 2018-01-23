@@ -254,6 +254,51 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
                         "d'empowering, es torna a pujar" % polissa['name'])
             push_contracts.delay([polissa['id']])
 
+def enqueue_remove_contracts(tg_enabled, contracts_id=[]):
+    O = setup_peek()
+    em = setup_empowering_api()
+    # Busquem els que hem d'actualitzar
+    search_params = [
+        ('state', '=', 'baixa'),
+        ('etag', '!=', False),
+        ('cups.empowering', '=', True)
+    ]
+    if isinstance(contracts_id, list) and contracts_id:
+        search_params.append(('name', 'in', contracts_id))
+    polisses_ids = O.GiscedataPolissa.search(search_params,
+        context={'active_test': False})
+    if not polisses_ids:
+        return
+    for polissa in O.GiscedataPolissa.read(polisses_ids, ['name', 'etag', 'cups','modcontractual_activa']):
+        modcons_to_update = []
+        try:
+            last_updated = em.contract(polissa['name']).get()['_updated']
+            last_updated = make_local_timestamp(last_updated)
+        except (libsaas.http.HTTPError, urllib2.HTTPError) as e:
+            # A 404 is possible if we delete empowering contracts in insight engine
+            # but keep etag in our database.
+            # In this case we must force the re-upload as new contract
+            if e.code != 404:
+                raise e
+            last_updated = '0'
+
+        modcons_id = O.GiscedataPolissaModcontractual.search([('polissa_id','=',polissa['id'])],
+            context={'active_test': False})
+        for modcon_id in modcons_id:
+            w_date = O.GiscedataPolissaModcontractual.perm_read(modcon_id)[0]['write_date']
+            if w_date > last_updated:
+                logger.info('La modcontractual %d a actualitzar write_'
+                            'date: %s last_update: %s' % (
+                    modcon_id, w_date, last_updated))
+                modcons_to_update.append(modcon_id)
+                continue
+
+        modcons_to_update = list(set(modcons_to_update))
+
+        if modcons_to_update:
+            logger.info('Polissa %s actualitzada a %s després de %s' % (
+                polissa['name'], w_date, last_updated))
+            push_modcontracts.delay(modcons_to_update, polissa['etag'])
 
 @job(setup_queue(name='measures'), connection=setup_redis(), timeout=3600)
 @sentry.capture_exceptions

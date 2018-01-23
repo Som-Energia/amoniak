@@ -63,6 +63,7 @@ def enqueue_contracts(tg_enabled, contracts):
     tasks.enqueue_contracts(tg_enabled, contracts_id)
     logger.info('Enqueuing new contracts')
     tasks.enqueue_new_contracts(tg_enabled, contracts_id)
+    tasks.enqueue_remove_contracts(tg_enabled, contracts_id)
 
 
 if __name__ == '__main__':
