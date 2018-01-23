@@ -351,17 +351,21 @@ def push_contracts(contracts_id):
         cid = pol['id']
         upd = []
         first = True
-        for modcon_id in reversed(pol['modcontractuals_ids']):
-            amon_data = amon.contract_to_amon(cid,
-                    {'modcon_id': modcon_id, 'first':first})[0]
-            if first:
-                response = em.contracts().create(amon_data)
-                first = False
-            else:
-                etag = upd[-1]['_etag']
-                response = em.contract(pol['name']).update(amon_data, etag)
-            if check_response(response, amon_data):
-                upd.append(response)
+        try:
+            for modcon_id in reversed(pol['modcontractuals_ids']):
+                amon_data = amon.contract_to_amon(cid,
+                        {'modcon_id': modcon_id, 'first':first})[0]
+                if first:
+                    response = em.contracts().create(amon_data)
+                    first = False
+                else:
+                    etag = upd[-1]['_etag']
+                    response = em.contract(pol['name']).update(amon_data, etag)
+                if check_response(response, amon_data):
+                    upd.append(response)
+        except Exception as e:
+            logger.info("Exception id: %s %s" % (pol['name'], str(e)))
+            continue
         if upd:
             etag = upd[-1]['_etag']
             logger.info("Polissa id: %s -> etag %s" % (pol['name'], etag))
