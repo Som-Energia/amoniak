@@ -53,7 +53,7 @@ def enqueue_all_amon_measures(tg_enabled=True, bucket=500):
 def enqueue_measures(tg_enabled=True, polisses_ids=[], bucket=500):
     # First get all the contracts that are in sync
     O = setup_peek()
-    em = setup_empowering_api()
+    #em = setup_empowering_api()
     # TODO: Que fem amb les de baixa? les agafem igualment? només les que
     # TODO: faci menys de X que estan donades de baixa?
     search_params = [('etag', '!=', False),
@@ -154,7 +154,7 @@ def enqueue_new_contracts(tg_enabled, polisses_ids =[], bucket=500):
     ]
     search_params.append(('polissa.tarifa.name', 'in', residential_tariffs))
 
-    em = setup_empowering_api()
+    #em = setup_empowering_api()
 
     # NOTE: Remove online update, use deferred one
     #items = em.contracts().get(sort="[('_updated', -1)]")['_items']
@@ -204,6 +204,7 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
         search_params.append(('name', 'in', contracts_id))
     polisses_ids = O.GiscedataPolissa.search(search_params)
     if not polisses_ids:
+        em.logout()
         return
     for polissa in O.GiscedataPolissa.read(polisses_ids, ['name', 'etag', 'cups','modcontractual_activa']):
         modcons_to_update = []
@@ -216,6 +217,7 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
             # but keep etag in our database.
             # In this case we must force the re-upload as new contract
             if e.code != 404:
+                em.logout()
                 raise e
             is_new_contract = True
             last_updated = '0'
@@ -253,6 +255,7 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
             logger.info("La polissa %s te etag pero ha estat borrada "
                         "d'empowering, es torna a pujar" % polissa['name'])
             push_contracts.delay([polissa['id']])
+    em.logout()
 
 def enqueue_remove_contracts(tg_enabled, contracts_id=[]):
     O = setup_peek()
@@ -268,6 +271,7 @@ def enqueue_remove_contracts(tg_enabled, contracts_id=[]):
     polisses_ids = O.GiscedataPolissa.search(search_params,
         context={'active_test': False})
     if not polisses_ids:
+        em.logout()
         return
     for polissa in O.GiscedataPolissa.read(polisses_ids, ['name', 'etag', 'cups','modcontractual_activa']):
         modcons_to_update = []
@@ -277,10 +281,7 @@ def enqueue_remove_contracts(tg_enabled, contracts_id=[]):
         except (libsaas.http.HTTPError, urllib2.HTTPError) as e:
             # A 404 is possible if we delete empowering contracts in insight engine
             # but keep etag in our database.
-            # In this case we must force the re-upload as new contract
-            if e.code != 404:
-                raise e
-            last_updated = '0'
+            raise e
 
         modcons_id = O.GiscedataPolissaModcontractual.search([('polissa_id','=',polissa['id'])],
             context={'active_test': False})
@@ -299,6 +300,7 @@ def enqueue_remove_contracts(tg_enabled, contracts_id=[]):
             logger.info('Polissa %s actualitzada a %s després de %s' % (
                 polissa['name'], w_date, last_updated))
             push_modcontracts.delay(modcons_to_update, polissa['etag'])
+    em.logout()
 
 @job(setup_queue(name='measures'), connection=setup_redis(), timeout=3600)
 @sentry.capture_exceptions
@@ -357,6 +359,7 @@ def push_amon_measures(tg_enabled, measures_ids):
     stop = datetime.now()
     logger.info('Mesures enviades en %s' % (stop - start))
     logger.info("%s measures creades" % len(measures_pushed))
+    em.logout()
 
 
 @job(setup_queue(name='contracts'), connection=setup_redis(), timeout=3600)
@@ -379,6 +382,7 @@ def push_modcontracts(modcons, etag):
         if check_response(response, amon_data):
             etag = response['_etag']
     O.GiscedataPolissa.write(modcon['polissa_id'][0], {'etag': etag})
+    em.logout()
 
 
 @job(setup_queue(name='contracts'), connection=setup_redis(), timeout=3600)
@@ -417,3 +421,4 @@ def push_contracts(contracts_id):
             O.GiscedataPolissa.write(cid, {'etag': etag})
         else:
             logger.info("Polissa id: %s no etag found" % (pol['name']))
+    em.logout()
