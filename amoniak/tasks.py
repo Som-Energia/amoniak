@@ -206,11 +206,14 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
     if not polisses_ids:
         em.logout()
         return
-    for polissa in O.GiscedataPolissa.read(polisses_ids, ['name', 'etag', 'cups','modcontractual_activa']):
+    fields = ['name', 'etag', 'cups', 'modcontractual_activa', 'comptadors']
+    for polissa in O.GiscedataPolissa.read(polisses_ids, fields):
         modcons_to_update = []
         is_new_contract = False
+        contract = None
         try:
-            last_updated = em.contract(polissa['name']).get()['_updated']
+            contract = em.contract(polissa['name']).get()
+            last_updated = contract['_updated']
             last_updated = make_local_timestamp(last_updated)
         except (libsaas.http.HTTPError, urllib2.HTTPError) as e:
             # A 404 is possible if we delete empowering contracts in insight engine
@@ -241,9 +244,13 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
                     modcons_to_update.append(modcon_id)
                     continue
 
-                profile_id = O.EmpoweringModcontractualProfile.search([
-                            ('modcontractual_id', '=', modcon_id)])
-
+            # Workaround to identify new meter scenarios. Not checking meter
+            # dateStart in order to prevent ERP overload. Just checking amount
+            # of meters related to a contract
+            if (contract is not None and 'devices' in contract and
+                len(contract['devices']) != len(polissa['comptadors'])):
+                modcon_id = polissa['modcontractual_activa'][0]
+                modcons_to_update.append(modcon_id)
 
         modcons_to_update = list(set(modcons_to_update))
 
