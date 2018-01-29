@@ -281,7 +281,7 @@ def enqueue_remove_contracts(tg_enabled, contracts_id=[]):
         except (libsaas.http.HTTPError, urllib2.HTTPError) as e:
             # A 404 is possible if we delete empowering contracts in insight engine
             # but keep etag in our database.
-            raise e
+            continue
 
         modcons_id = O.GiscedataPolissaModcontractual.search([('polissa_id','=',polissa['id'])],
             context={'active_test': False})
