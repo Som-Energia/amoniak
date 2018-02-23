@@ -63,12 +63,16 @@ def enqueue_measures(tg_enabled=True, polisses_ids=[], bucket=500):
         search_params.append(('name', 'in', polisses_ids))
     pids = O.GiscedataPolissa.search(search_params)
 
+    fields_to_read = ['data_alta']
+    date_start = {x['id']:x['data_alta']
+        for x in O.GiscedataPolissa.read(pids, fields_to_read)}
+
     search_params = [('polissa', 'in', pids)]
     if tg_enabled:
         search_params.append(('tg_cnc_conn', '=', 1))
 
     cids = O.GiscedataLecturesComptador.search(search_params, context={'active_test': False})
-    fields_to_read = ['name', 'empowering_last_measure']
+    fields_to_read = ['name', 'empowering_last_measure', 'polissa']
 
     # Measurement source type filter
     #Name                               codi   subcodi   active
@@ -90,9 +94,13 @@ def enqueue_measures(tg_enabled=True, polisses_ids=[], bucket=500):
 
     popper = Popper([])
     for comptador in O.GiscedataLecturesComptador.read(cids, fields_to_read):
+        if comptador['polissa'][0] not in date_start:
+            continue
         search_params = [
-            ('comptador', '=', comptador['id'])
+            ('comptador', '=', comptador['id']),
+            ('name', '>=', date_start[comptador['polissa'][0]])
         ]
+
         if tg_enabled:
             tg_name = O.GiscedataLecturesComptador.build_name_tg(comptador['id'])
             search_params += [
