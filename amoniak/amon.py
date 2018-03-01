@@ -42,6 +42,8 @@ def get_street_name(cups):
     street_name = ', '.join(street)
     return street_name
 
+def eofday(x):
+    return (x + ' 23:00:00') if x else x
 
 class AmonConverter(object):
     def __init__(self, connection):
@@ -412,7 +414,7 @@ class AmonConverter(object):
         return remove_none({
           "tariffId": modcon['tarifa'][1],
           "dateStart": make_utc_timestamp(modcon['data_inici']),
-          "dateEnd": make_utc_timestamp(modcon['data_final'])
+          "dateEnd": make_utc_timestamp(eofday(modcon['data_final']))
         })
 
     def power_to_amon(self, modcons_id):
@@ -427,7 +429,7 @@ class AmonConverter(object):
         return remove_none({
           "power": int(modcon['potencia'] * 1000),
           "dateStart": make_utc_timestamp(modcon['data_inici']),
-          "dateEnd": make_utc_timestamp(modcon['data_final'])
+          "dateEnd": make_utc_timestamp(eofday(modcon['data_final']))
         })
 
     def tariffHistory_to_amon(self, modcons_id):
@@ -444,7 +446,7 @@ class AmonConverter(object):
             {
                 "tariffId": modcon['tarifa'][1],
                 "dateStart": make_utc_timestamp(modcon['data_inici']),
-                "dateEnd": make_utc_timestamp(modcon['data_final'])
+                "dateEnd": make_utc_timestamp(eofday(modcon['data_final']))
             }
             for modcon in self.find_changes(modcons_id, 'tarifa')]
 
@@ -462,7 +464,7 @@ class AmonConverter(object):
             {
                 "power": int(modcon['potencia'] * 1000),
                 "dateStart": make_utc_timestamp(modcon['data_inici']),
-                "dateEnd": make_utc_timestamp(modcon['data_final'])
+                "dateEnd": make_utc_timestamp(eofday(modcon['data_final']))
             }
             for modcon in self.find_changes(modcons_id, 'potencia')]
 
@@ -617,7 +619,7 @@ class AmonConverter(object):
                 'ownerId': make_uuid('res.partner', modcon['titular'][0]),
                 'payerId': make_uuid('res.partner', modcon['pagador'][0]),
                 'dateStart': make_utc_timestamp(polissa['data_alta']),
-                'dateEnd': make_utc_timestamp(polissa['data_baixa']),
+                'dateEnd': make_utc_timestamp(eofday(polissa['data_baixa'])),
                 'contractId': polissa['name'],
                 'tariffId': modcon['tarifa'][1],
                 'tariff_': self.tariff_to_amon(modcons_id),
