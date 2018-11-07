@@ -5,6 +5,7 @@ import logging
 import urllib2
 
 import libsaas
+import xmlrpclib
 
 from .utils import (
     setup_peek, setup_mongodb, setup_empowering_api, setup_redis,
@@ -93,54 +94,60 @@ def enqueue_measures(tg_enabled=True, polisses_ids=[], bucket=500):
     origen_ids = O.GiscedataLecturesOrigen.search([('codi','in',origen_to_search)])
 
     popper = Popper([])
+
     for comptador in O.GiscedataLecturesComptador.read(cids, fields_to_read):
-        if comptador['polissa'][0] not in date_start:
-            continue
-        search_params = [
-            ('comptador', '=', comptador['id']),
-            ('name', '>=', date_start[comptador['polissa'][0]])
-        ]
+        try:
+            if comptador['polissa'][0] not in date_start:
+                continue
+            search_params = [
+                ('comptador', '=', comptador['id']),
+                ('name', '>=', date_start[comptador['polissa'][0]])
+            ]
 
-        if tg_enabled:
-            tg_name = O.GiscedataLecturesComptador.build_name_tg(comptador['id'])
-            search_params += [
-                ('name', '=', tg_name),
-                ('type', '=', 'day'),
-                ('value', '=', 'a'),
-                ('valid', '=', 1),
-                ('period', '=',  0)]
-
-        last_measure = comptador.get('empowering_last_measure')
-        if not last_measure:
-            logger.info(u"No hi ha lectures. Carregar totes")
-
-        else:
-            logger.info(u"Última lectura trobada: %s" % last_measure)
             if tg_enabled:
-                search_params.append(('date_end', '>', last_measure))
+                tg_name = O.GiscedataLecturesComptador.build_name_tg(comptador['id'])
+                search_params += [
+                    ('name', '=', tg_name),
+                    ('type', '=', 'day'),
+                    ('value', '=', 'a'),
+                    ('valid', '=', 1),
+                    ('period', '=',  0)]
+
+            last_measure = comptador.get('empowering_last_measure')
+            logger.info(u"Polissa_id: %s > " % str(comptador['polissa']))
+            if not last_measure:
+                logger.info(u"No hi ha lectures. Carregar totes")
+
             else:
-                search_params.append(('write_date', '>', last_measure))
+                logger.info(u"Última lectura trobada: %s" % last_measure)
+                if tg_enabled:
+                    search_params.append(('date_end', '>', last_measure))
+                else:
+                    search_params.append(('write_date', '>', last_measure))
 
-        if tg_enabled:
-            measures_ids = O.TgBilling.search(search_params, limit=0, order="date_end asc")
-        else:
-            search_params.append(('origen_id', 'in', origen_ids))
+            if tg_enabled:
+                measures_ids = O.TgBilling.search(search_params, limit=0, order="date_end asc")
+            else:
+                search_params.append(('origen_id', 'in', origen_ids))
 
-            #origen_comer_to_search = [
-            #    'Fitxer de lectures Q1',
-            #    'Fitxer de factura F1',
-            #    'Entrada manual',
-            #    'Oficina Virtual',
-            #    'Autolectura',
-            #    'Estimada',
-            #    'Gestió ATR'
-            #]
-            #origen_comer_ids = O.GiscedataLecturesOrigenComer.search([('name','in',origen_comer_to_search)])
-            #search_params.append(('origen_comer_id', 'in', origen_comer_ids))
+                #origen_comer_to_search = [
+                #    'Fitxer de lectures Q1',
+                #    'Fitxer de factura F1',
+                #    'Entrada manual',
+                #    'Oficina Virtual',
+                #    'Autolectura',
+                #    'Estimada',
+                #    'Gestió ATR'
+                #]
+                #origen_comer_ids = O.GiscedataLecturesOrigenComer.search([('name','in',origen_comer_to_search)])
+                #search_params.append(('origen_comer_id', 'in', origen_comer_ids))
 
-            measures_ids = O.GiscedataLecturesLectura.search(search_params, limit=0, order="name asc")
-        logger.info("S'han trobat %s mesures per pujar" % len(measures_ids))
-        popper.push(measures_ids)
+                measures_ids = O.GiscedataLecturesLectura.search(search_params, limit=0, order="name asc")
+            logger.info("S'han trobat %s mesures per pujar\n" % len(measures_ids))
+            popper.push(measures_ids)
+        except xmlrpclib.ProtocolError as e:
+            O = setup_peek()
+
     pops = popper.pop(bucket)
     while pops:
         j = push_amon_measures.delay(tg_enabled, pops)
@@ -216,60 +223,70 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
         return
     fields = ['name', 'etag', 'cups', 'modcontractual_activa', 'comptadors']
     for polissa in O.GiscedataPolissa.read(polisses_ids, fields):
-        modcons_to_update = []
-        is_new_contract = False
-        contract = None
         try:
-            contract = em.contract(polissa['name']).get()
-            last_updated = contract['_updated']
-            last_updated = make_local_timestamp(last_updated)
-        except (libsaas.http.HTTPError, urllib2.HTTPError) as e:
-            # A 404 is possible if we delete empowering contracts in insight engine
-            # but keep etag in our database.
-            # In this case we must force the re-upload as new contract
-            if e.code != 404:
-                em.logout()
-                raise e
-            is_new_contract = True
-            last_updated = '0'
-
-        building_id = O.EmpoweringCupsBuilding.search([('cups_id', '=', polissa['cups'][0])])
-
-        if building_id:
-            w_date = O.EmpoweringCupsBuilding.perm_read(building_id)[0]['write_date']
-            if w_date > last_updated:
-                modcon_id = polissa['modcontractual_activa'][0]
-                modcons_to_update.append(modcon_id)
-
-        if not is_new_contract:
-            modcons_id = O.GiscedataPolissaModcontractual.search([('polissa_id','=',polissa['id'])])
-            for modcon_id in modcons_id:
-                w_date = O.GiscedataPolissaModcontractual.perm_read(modcon_id)[0]['write_date']
-                if w_date > last_updated:
-                    logger.info('La modcontractual %d a actualitzar write_'
-                                'date: %s last_update: %s' % (
-                        modcon_id, w_date, last_updated))
-                    modcons_to_update.append(modcon_id)
+            modcons_to_update = []
+            is_new_contract = False
+            contract = None
+            try:
+                contract = em.contract(polissa['name']).get()
+                last_updated = contract['_updated']
+                last_updated = make_local_timestamp(last_updated)
+            except (libsaas.http.HTTPError, urllib2.HTTPError) as e:
+                # A 404 is possible if we delete empowering contracts in insight engine
+                # but keep etag in our database.
+                # In this case we must force the re-upload as new contract
+                if e.code != 404:
+                    #em.logout()
+                    #raise e
+                    print e
                     continue
+                is_new_contract = True
+                last_updated = '0'
 
-            # Workaround to identify new meter scenarios. Not checking meter
-            # dateStart in order to prevent ERP overload. Just checking amount
-            # of meters related to a contract
-            if (contract is not None and 'devices' in contract and
-                len(contract['devices']) != len(polissa['comptadors'])):
-                modcon_id = polissa['modcontractual_activa'][0]
-                modcons_to_update.append(modcon_id)
+            building_id = O.EmpoweringCupsBuilding.search([('cups_id', '=', polissa['cups'][0])])
 
-        modcons_to_update = list(set(modcons_to_update))
+            if building_id:
+                w_date = O.EmpoweringCupsBuilding.perm_read(building_id)[0]['write_date']
+                if w_date > last_updated:
+                    modcon_id = polissa['modcontractual_activa'][0]
+                    modcons_to_update.append(modcon_id)
 
-        if modcons_to_update:
-            logger.info('Polissa %s actualitzada a %s després de %s' % (
-                polissa['name'], w_date, last_updated))
-            push_modcontracts.delay(modcons_to_update, polissa['etag'])
-        if is_new_contract:
-            logger.info("La polissa %s te etag pero ha estat borrada "
-                        "d'empowering, es torna a pujar" % polissa['name'])
-            push_contracts.delay([polissa['id']])
+            if not is_new_contract:
+                modcons_id = O.GiscedataPolissaModcontractual.search([('polissa_id','=',polissa['id'])])
+                for modcon_id in modcons_id:
+                    w_date = O.GiscedataPolissaModcontractual.perm_read(modcon_id)[0]['write_date']
+                    if w_date > last_updated:
+                        logger.info('La modcontractual %d a actualitzar write_'
+                                    'date: %s last_update: %s' % (
+                            modcon_id, w_date, last_updated))
+                        modcons_to_update.append(modcon_id)
+                        continue
+
+                # Workaround to identify new meter scenarios. Not checking meter
+                # dateStart in order to prevent ERP overload. Just checking amount
+                # of meters related to a contract
+                if (contract is not None and 'devices' in contract and
+                    len(contract['devices']) != len(polissa['comptadors'])):
+                    modcon_id = polissa['modcontractual_activa'][0]
+                    modcons_to_update.append(modcon_id)
+
+            modcons_to_update = list(set(modcons_to_update))
+
+            if modcons_to_update:
+                logger.info('Polissa %s actualitzada a %s després de %s' % (
+                    polissa['name'], w_date, last_updated))
+                push_modcontracts.delay(modcons_to_update, polissa['etag'])
+            if is_new_contract:
+                logger.info("La polissa %s te etag pero ha estat borrada "
+                            "d'empowering, es torna a pujar" % polissa['name'])
+                push_contracts.delay([polissa['id']])
+
+        except xmlrpclib.ProtocolError as e:
+            O = setup_peek()
+            print e
+        except (libsaas.http.HTTPError, urllib2.HTTPError) as e:
+            em = setup_empowering_api()
+            print e
     em.logout()
 
 def enqueue_remove_contracts(tg_enabled, contracts_id=[]):
@@ -293,28 +310,33 @@ def enqueue_remove_contracts(tg_enabled, contracts_id=[]):
         try:
             last_updated = em.contract(polissa['name']).get()['_updated']
             last_updated = make_local_timestamp(last_updated)
+
+            modcons_id = O.GiscedataPolissaModcontractual.search([('polissa_id','=',polissa['id'])],
+                context={'active_test': False})
+            for modcon_id in modcons_id:
+                w_date = O.GiscedataPolissaModcontractual.perm_read(modcon_id)[0]['write_date']
+                if w_date > last_updated:
+                    logger.info('La modcontractual %d a actualitzar write_'
+                                'date: %s last_update: %s' % (
+                        modcon_id, w_date, last_updated))
+                    modcons_to_update.append(modcon_id)
+                    continue
+
+            modcons_to_update = list(set(modcons_to_update))
+
+            if modcons_to_update:
+                logger.info('Polissa %s actualitzada a %s després de %s' % (
+                    polissa['name'], w_date, last_updated))
+                push_modcontracts.delay(modcons_to_update, polissa['etag'])
+        except xmlrpclib.ProtocolError as e:
+            O = setup_peek()
+            print e
         except (libsaas.http.HTTPError, urllib2.HTTPError) as e:
             # A 404 is possible if we delete empowering contracts in insight engine
             # but keep etag in our database.
+            em = setup_empowering_api()
+            print e
             continue
-
-        modcons_id = O.GiscedataPolissaModcontractual.search([('polissa_id','=',polissa['id'])],
-            context={'active_test': False})
-        for modcon_id in modcons_id:
-            w_date = O.GiscedataPolissaModcontractual.perm_read(modcon_id)[0]['write_date']
-            if w_date > last_updated:
-                logger.info('La modcontractual %d a actualitzar write_'
-                            'date: %s last_update: %s' % (
-                    modcon_id, w_date, last_updated))
-                modcons_to_update.append(modcon_id)
-                continue
-
-        modcons_to_update = list(set(modcons_to_update))
-
-        if modcons_to_update:
-            logger.info('Polissa %s actualitzada a %s després de %s' % (
-                polissa['name'], w_date, last_updated))
-            push_modcontracts.delay(modcons_to_update, polissa['etag'])
     em.logout()
 
 @job(setup_queue(name='measures'), connection=setup_redis(), timeout=3600)
