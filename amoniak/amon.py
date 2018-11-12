@@ -5,12 +5,14 @@ from hashlib import sha1
 import json
 import logging
 from datetime import datetime
+import pymongo
 
 from .cache import CUPS_CACHE, CUPS_UUIDS
 from .utils import recursive_update
 from empowering.utils import null_to_none, remove_none, make_uuid, make_utc_timestamp
 from .climatic_zones import ine_to_zc 
 from .postal_codes import ine_to_dp 
+from .utils import setup_mongodb
 
 UNITS = {1: '', 1000: 'k'}
 
@@ -716,6 +718,36 @@ class AmonConverter(object):
         else:
             return None
 
+    def cchfact_to_amoun(self, cups, date_last_uploaded):
+        """ Mongo F5D measure to AMON
+        "measurements":
+         [
+        {
+          "timestamp": "2013-10-11T16:37:05Z",
+          "type": "electricityConsumption",
+          "value": 7.0,
+          "consolidated": True
+        }]
+        """
+        #Get measures CCH from Mongo
+        mongo = setup_mongodb()
+        collection = mongo['tg_cchfact']
+        measures = collection.find({"name": cups, "datetime" : {"$gt":date_last_uploaded}})
+
+        #Build JSON
+        res = {}
+        res['measurements'] = []
+        for measure in measures:
+            measure_json = {}
+            measure_json['type'] = "electricityConsumption"
+            measure_json['consolidated'] = True
+
+            measure_json['timestamp'] =  datetime.strftime(measure['datetime'], "%Y-%m-%dT%H:%M:%SZ")
+            measure_json['value'] = measure['ai']
+            res['measurements'].append(measure_json)
+
+        json_data = json.dumps(res)
+        return json_data
 
 def check_response(response, amon_data):
     logger.debug('Handlers: %s Class: %s' % (logger.handlers, logger))
@@ -731,3 +763,5 @@ def check_response(response, amon_data):
         )
         return False
     return True
+
+# vim: et ts=4 sw=4
