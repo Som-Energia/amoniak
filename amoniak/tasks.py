@@ -459,3 +459,36 @@ def push_contracts(contracts_id):
         else:
             logger.info("Polissa id: %s no etag found" % (pol['name']))
     em.logout()
+
+def push_amon_cchfact():
+    O = setup_peek()
+    gp_obj = O.GiscedataPolissa
+    filters = [
+                ('cups.empowering', '=', True),
+                ('state', '=', 'activa'),
+                ('active', '=', True),
+                ]
+    fields_to_read = ['cups', 'data_alta']
+    id_list = gp_obj.search(filters)
+    last_upload_date = get_last_cchfact_upload()
+    amon = AmonConverter(O)
+
+    for id_contract in id_list:
+        json_to_send = amon.cchfact_to_amon(gp_obj.read(id_contract, fields_to_read)['cups'][1], last_upload_date)
+        push_cchfact(json_to_send)
+        print id_contract
+
+@job(setup_queue(name='api_sender'), connection=setup_redis(), timeout=3600)
+@sentry.capture_exceptions
+def push_cchfact(json_to_send):
+    return True
+
+
+def get_last_cchfact_upload():
+    O = setup_peek()
+    ecpl_obj = O.EmpoweringCchPushLog
+    id_last_upload = ecpl_obj.search([('status', '=', 'done')],
+        limit=1, order='start_date desc')[0]
+    last_date = ecpl_obj.read(id_last_upload, ['start_date'])['start_date'] \
+        if id_last_upload else '1970-01-01'
+    return last_date
