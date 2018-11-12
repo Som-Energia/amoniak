@@ -718,7 +718,7 @@ class AmonConverter(object):
         else:
             return None
 
-    def cchfact_to_amoun(self, cups, date_last_uploaded):
+    def cchfact_to_amon(self, cups, date_last_uploaded):
         """ Mongo F5D measure to AMON
         "measurements":
          [
@@ -732,7 +732,7 @@ class AmonConverter(object):
         #Get measures CCH from Mongo
         mongo = setup_mongodb()
         collection = mongo['tg_cchfact']
-        measures = collection.find({"name": cups, "datetime" : {"$gt":date_last_uploaded}})
+        measures = collection.find({"name": cups, "create_at" : {"$gt":date_last_uploaded}})
 
         #Build JSON
         res = {}
