@@ -734,6 +734,9 @@ class AmonConverter(object):
         collection = mongo['tg_cchfact']
         measures = collection.find({"name": cups, "create_at" : {"$gt":date_last_uploaded}})
 
+        if measures.count() == 0:
+            return {}
+
         #Build JSON
         res = {}
         res['measurements'] = []

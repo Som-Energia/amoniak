@@ -475,8 +475,8 @@ def push_amon_cchfact():
 
     for id_contract in id_list:
         json_to_send = amon.cchfact_to_amon(gp_obj.read(id_contract, fields_to_read)['cups'][1], last_upload_date)
-        push_cchfact(json_to_send)
-        print id_contract
+        if json_to_send is not {}:
+            push_cchfact(json_to_send)
 
 @job(setup_queue(name='api_sender'), connection=setup_redis(), timeout=3600)
 @sentry.capture_exceptions
