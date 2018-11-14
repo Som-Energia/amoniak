@@ -12,7 +12,9 @@ from .utils import recursive_update
 from empowering.utils import null_to_none, remove_none, make_uuid, make_utc_timestamp
 from .climatic_zones import ine_to_zc 
 from .postal_codes import ine_to_dp 
-from .utils import setup_mongodb
+from .utils import (
+    setup_mongodb, setup_peek
+)
 
 UNITS = {1: '', 1000: 'k'}
 
@@ -731,6 +733,7 @@ class AmonConverter(object):
         """
         #Get measures CCH from Mongo
         mongo = setup_mongodb()
+        O = setup_peek()
         collection = mongo['tg_cchfact']
         measures = collection.find({"name": cups, "create_at" : {"$gt":date_last_uploaded}})
 
@@ -738,7 +741,15 @@ class AmonConverter(object):
             return {}
 
         #Build JSON
+        cups = O.GiscedataCupsPs.get([('name', '=', cups)])
+        polissa_id = max(cups.polisses.polissa_id.id)
+        meter_name = O.GiscedataLecturesComptador.read([('polissa', '=', polissa_id)])[0]['name']
+        device_uuid = make_uuid('giscedata.lectures.comptador', meter_name)
+        metering_uuid = make_uuid('giscedata.cups.ps', cups)
+
         res = {}
+        res['meteringPointId'] = metering_uuid
+        res['deviceId'] = device_uuid
         res['measurements'] = []
         for measure in measures:
             measure_json = {}
