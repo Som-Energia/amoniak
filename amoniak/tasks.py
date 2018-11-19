@@ -462,6 +462,7 @@ def push_contracts(contracts_id):
 
 def push_amon_cchfact():
     O = setup_peek()
+    mongo_conn = setup_mongodb()
     gp_obj = O.GiscedataPolissa
     filters = [
                 ('cups.empowering', '=', True),
@@ -471,7 +472,7 @@ def push_amon_cchfact():
     fields_to_read = ['cups', 'data_alta']
     id_list = gp_obj.search(filters)
     last_upload_date = get_last_cchfact_upload()
-    amon = AmonConverter(O)
+    amon = AmonConverter(O, mongo_conn)
 
     for id_contract in id_list:
         json_to_send = amon.cchfact_to_amon(gp_obj.read(id_contract, fields_to_read)['cups'][1], last_upload_date)

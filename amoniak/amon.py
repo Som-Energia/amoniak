@@ -13,7 +13,7 @@ from empowering.utils import null_to_none, remove_none, make_uuid, make_utc_time
 from .climatic_zones import ine_to_zc 
 from .postal_codes import ine_to_dp 
 from .utils import (
-    setup_mongodb, setup_peek
+    setup_mongodb
 )
 
 UNITS = {1: '', 1000: 'k'}
@@ -49,9 +49,12 @@ def get_street_name(cups):
 def eofday(x):
     return (x + ' 23:00:00') if x else x
 
+
 class AmonConverter(object):
-    def __init__(self, connection):
+    def __init__(self, connection, mongo_conn=None):
         self.O = connection
+        if mongo_conn:
+            self.mongo = mongo_conn
 
     def get_cups_from_device(self, device_id):
         def get_device_serial(device_id):
@@ -732,9 +735,8 @@ class AmonConverter(object):
         }]
         """
         #Get measures CCH from Mongo
-        mongo = setup_mongodb()
-        O = setup_peek()
-        collection = mongo['tg_cchfact']
+        O = self.O
+        collection = self.mongo['tg_cchfact']
         measures = collection.find({"name": cups, "create_at" : {"$gt":date_last_uploaded}})
 
         if measures.count() == 0:
