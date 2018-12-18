@@ -737,7 +737,7 @@ class AmonConverter(object):
         #Get measures CCH from Mongo
         O = self.O
         collection = self.mongo['tg_cchfact']
-        measures = collection.find({"name": cups, "create_at" : {"$gt":date_last_uploaded}})
+        measures = collection.find({"name": cups, "datetime" : {"$gt":date_last_uploaded}})
 
         if measures.count() == 0:
             return {}
@@ -757,13 +757,12 @@ class AmonConverter(object):
             measure_json = {}
             measure_json['type'] = "electricityConsumption"
             measure_json['consolidated'] = True
-
             measure_json['timestamp'] =  datetime.strftime(measure['datetime'], "%Y-%m-%dT%H:%M:%SZ")
             measure_json['value'] = measure['ai']
             res['measurements'].append(measure_json)
 
         json_data = json.dumps(res)
-        return json_data
+        return json_data, measure_json['timestamp']
 
 def check_response(response, amon_data):
     logger.debug('Handlers: %s Class: %s' % (logger.handlers, logger))
