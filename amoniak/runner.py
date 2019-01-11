@@ -65,6 +65,23 @@ def enqueue_contracts(tg_enabled, contracts):
     tasks.enqueue_new_contracts(tg_enabled, contracts_id)
     tasks.enqueue_remove_contracts(tg_enabled, contracts_id)
 
+@amoniak.command()
+def enqueue_cchfact():
+    logger = logging.getLogger('amon')
+    logger.info('Enqueuing F5D curves')
+    try:
+        tasks.enqueue_cchfact()
+    except Exception, e:
+        logger.info('Failed enqueuing F5D')
+
+@amoniak.command()
+def enqueue_cchval():
+    logger = logging.getLogger('amon')
+    logger.info('Enqueuing P5D curves')
+    try:
+        tasks.enqueue_cchval()
+    except Exception, e:
+        logger.info('Failed enqueuing P5D')
 
 if __name__ == '__main__':
     amoniak(obj={})
