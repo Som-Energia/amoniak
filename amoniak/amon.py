@@ -723,7 +723,7 @@ class AmonConverter(object):
         else:
             return None
 
-    def cchfact_to_amon(self, cups, date_last_uploaded):
+    def cch_to_amon(self, cups, date_last_uploaded, collection_to_find, consolidate):
         """ Mongo F5D measure to AMON
         "measurements":
          [
@@ -736,11 +736,11 @@ class AmonConverter(object):
         """
         #Get measures CCH from Mongo
         O = self.O
-        collection = self.mongo['tg_cchfact']
+        collection = self.mongo[collection_to_find]
         measures = collection.find({"name": cups, "datetime" : {"$gt":date_last_uploaded}})
 
         if measures.count() == 0:
-            return {}
+            return {}, {}
 
         #Build JSON
         cups = O.GiscedataCupsPs.get([('name', '=', cups)])
@@ -748,21 +748,24 @@ class AmonConverter(object):
         meter_name = O.GiscedataLecturesComptador.read([('polissa', '=', polissa_id)])[0]['name']
         device_uuid = make_uuid('giscedata.lectures.comptador', meter_name)
         metering_uuid = make_uuid('giscedata.cups.ps', cups)
-
         res = {}
         res['meteringPointId'] = metering_uuid
         res['deviceId'] = device_uuid
         res['measurements'] = []
+        res['readings'] = []
         for measure in measures:
             measure_json = {}
             measure_json['type'] = "electricityConsumption"
-            measure_json['consolidated'] = True
+            measure_json['consolidated'] = consolidate
             measure_json['timestamp'] =  datetime.strftime(measure['datetime'], "%Y-%m-%dT%H:%M:%SZ")
             measure_json['value'] = measure['ai']
             res['measurements'].append(measure_json)
-
-        json_data = json.dumps(res)
-        return json_data, measure_json['timestamp']
+            reading_json = {}
+            reading_json['type'] = measure_json['type']
+            reading_json['period'] = "INSTANT"
+            reading_json['unit'] = 'Wh'
+            res['readings'].append(reading_json)
+        return res,  measure_json['timestamp']
 
 def check_response(response, amon_data):
     logger.debug('Handlers: %s Class: %s' % (logger.handlers, logger))

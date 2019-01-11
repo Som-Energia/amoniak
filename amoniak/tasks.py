@@ -6,6 +6,8 @@ import urllib2
 
 import libsaas
 import xmlrpclib
+import sys
+import json
 
 from .utils import (
     setup_peek, setup_mongodb, setup_empowering_api, setup_redis,
@@ -460,36 +462,50 @@ def push_contracts(contracts_id):
             logger.info("Polissa id: %s no etag found" % (pol['name']))
     em.logout()
 
-def push_amon_cchfact():
+def enqueue_cchfact():
+    push_amon_cch('empowering_last_f5d_measure', 'tg_cchfact', True)
+
+def enqueue_cchval():
+    push_amon_cch('empowering_last_p5d_measure', 'tg_cchval', False)
+
+
+@job(setup_queue(name='api_sender'), connection=setup_redis(), timeout=3600)
+@sentry.capture_exceptions
+def push_amon_cch(column, collection, consolidate):
+    em = setup_empowering_api()
     O = setup_peek()
     mongo_conn = setup_mongodb()
     gp_obj = O.GiscedataPolissa
+    glc_obj = O.GiscedataLecturesComptador
     filters = [
                 ('cups.empowering', '=', True),
                 ('state', '=', 'activa'),
                 ('active', '=', True),
                 ]
     fields_to_read = ['cups', 'data_alta']
-    id_list = gp_obj.search(filters)
-    last_upload_date = get_last_cchfact_upload()
+    id_polissa_list = gp_obj.search(filters) 
     amon = AmonConverter(O, mongo_conn)
 
-    for id_contract in id_list:
-        json_to_send = amon.cchfact_to_amon(gp_obj.read(id_contract, fields_to_read)['cups'][1], last_upload_date)
-        if json_to_send is not {}:
-            push_cchfact(json_to_send)
+    for id_contract in id_polissa_list:
+        try:
+            last_upload_date, id_last_update = get_last_cch_upload(id_contract, column)
+            json_to_send, reading_date = amon.cch_to_amon(
+                gp_obj.read(id_contract, fields_to_read)['cups'][1],
+                last_upload_date,
+                collection,
+                consolidate
+            )
+            if json_to_send != {}:
+                response = em.amon_measures().create(json_to_send)
+                glc_obj.write(id_last_update, {column: reading_date})
+        except Exception as e:
+            logger.info("Exception id: %s %s" % (id_contract, str(e))) 
 
-@job(setup_queue(name='api_sender'), connection=setup_redis(), timeout=3600)
-@sentry.capture_exceptions
-def push_cchfact(json_to_send):
-    return True
-
-
-def get_last_cchfact_upload():
+def get_last_cch_upload(id_contract, column):
     O = setup_peek()
-    ecpl_obj = O.EmpoweringCchPushLog
-    id_last_upload = ecpl_obj.search([('status', '=', 'done')],
-        limit=1, order='start_date desc')[0]
-    last_date = ecpl_obj.read(id_last_upload, ['start_date'])['start_date'] \
-        if id_last_upload else '1970-01-01'
-    return last_date
+    glc_obj = O.GiscedataLecturesComptador
+    id_last_upload = glc_obj.search([('polissa', '=', id_contract), ('active', '=', True)],
+        limit=1, order=column + ' desc')[0]
+    last_date = glc_obj.read(id_last_upload, [column])[column] or '1970-01-01 00:00:00'
+    return datetime.strptime(last_date,"%Y-%m-%d %H:%M:%S"), id_last_upload
+
