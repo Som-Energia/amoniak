@@ -136,6 +136,8 @@ def setup_redis():
 def setup_queue(**kwargs):
     config = config_from_environment('RQ', **kwargs)
     config['connection'] = setup_redis()
+    config.pop('worker_id', None)
+    config.pop('job_id', None)
     return Queue(**config)
 
 

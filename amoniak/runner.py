@@ -41,24 +41,11 @@ def enqueue_measures(tg_enabled, contracts):
     logger.info('Enqueuing measures')
     contracts_id = None
     try:
-        contracts_id = read_list_from_file(contracts, int)
+        contracts_id = read_list_from_file(contracts, str)
     except Exception, e:
             logger.info('Failed loading contracts: {e}'.format(**locals()))
             return
     tasks.enqueue_measures(tg_enabled, contracts_id)
-
-@amoniak.command()
-@click.option('--contracts', default=[])
-def enqueue_sips_measures(contracts):
-    logger = logging.getLogger('amon')
-    logger.info('Enqueuing sips measures')
-    contracts_id = None
-    try:
-        contracts_id = read_list_from_file(contracts, int)
-    except Exception, e:
-            logger.info('Failed loading contracts: {e}'.format(**locals()))
-            return
-    tasks.enqueue_sips_measures(contracts_id)
 
 @amoniak.command()
 @click.option('--tg_enabled', default=True)
@@ -69,14 +56,32 @@ def enqueue_contracts(tg_enabled, contracts):
     logger.info('Enqueuing updated contracts')
     contracts_id = None
     try:
-        contracts_id = read_list_from_file(contracts, int)
+        contracts_id = read_list_from_file(contracts, str)
     except Exception, e:
             logger.info('Failed loading contracts: {e}'.format(**locals()))
             return
     tasks.enqueue_contracts(tg_enabled, contracts_id)
     logger.info('Enqueuing new contracts')
     tasks.enqueue_new_contracts(tg_enabled, contracts_id)
+    tasks.enqueue_remove_contracts(tg_enabled, contracts_id)
 
+@amoniak.command()
+def enqueue_cchfact():
+    logger = logging.getLogger('amon')
+    logger.info('Enqueuing F5D curves')
+    try:
+        tasks.enqueue_cchfact()
+    except Exception, e:
+        logger.info('Failed enqueuing F5D')
+
+@amoniak.command()
+def enqueue_cchval():
+    logger = logging.getLogger('amon')
+    logger.info('Enqueuing P5D curves')
+    try:
+        tasks.enqueue_cchval()
+    except Exception, e:
+        logger.info('Failed enqueuing P5D')
 
 if __name__ == '__main__':
     amoniak(obj={})

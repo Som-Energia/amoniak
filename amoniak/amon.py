@@ -12,7 +12,9 @@ from .utils import recursive_update
 from empowering.utils import null_to_none, remove_none, make_uuid, make_utc_timestamp
 from .climatic_zones import ine_to_zc 
 from .postal_codes import ine_to_dp 
-from .utils import setup_mongodb
+from .utils import (
+    setup_mongodb
+)
 
 UNITS = {1: '', 1000: 'k'}
 
@@ -44,10 +46,15 @@ def get_street_name(cups):
     street_name = ', '.join(street)
     return street_name
 
+def eofday(x):
+    return (x + ' 23:00:00') if x else x
+
 
 class AmonConverter(object):
-    def __init__(self, connection):
+    def __init__(self, connection, mongo_conn=None):
         self.O = connection
+        if mongo_conn:
+            self.mongo = mongo_conn
 
     def get_cups_from_device(self, device_id):
         def get_device_serial(device_id):
@@ -81,24 +88,24 @@ class AmonConverter(object):
             "meteringPointId": "c1759810-90f3-012e-0404-34159e211070",
             "readings": [
                 {
-                    "type_": "electricityConsumption",
+                    "type_": "touElectricityConsumption",
                     "unit": "kWh",
                     "period": "INSTANT",
                 },
                 {
-                    "type_": "electricityKiloVoltAmpHours",
+                    "type_": "touElectricityKiloVoltAmpHours",
                     "unit": "kVArh",
                     "period": "INSTANT",
                 }
             ],
             "measurements": [
                 {
-                    "type_": "electricityConsumption",
+                    "type_": "touElectricityConsumption",
                     "timestamp": "2010-07-02T11:39:09Z", # UTC
                     "value": 7
                 },
                 {
-                    "type_": "electricityKiloVoltAmpHours",
+                    "type_": "touElectricityKiloVoltAmpHours",
                     "timestamp": "2010-07-02T11:44:09Z", # UTC
                     "value": 6
                 }
@@ -120,24 +127,24 @@ class AmonConverter(object):
                 "meteringPointId": mp_uuid,
                 "readings": [
                     {
-                        "type":  "electricityConsumption",
+                        "type":  "touElectricityConsumption",
                         "unit": "%sWh" % UNITS[profile.get('magn', 1000)],
                         "period": "CUMULATIVE",
                     },
                     {
-                        "type": "electricityKiloVoltAmpHours",
+                        "type": "touElectricityKiloVoltAmpHours",
                         "unit": "%sVArh" % UNITS[profile.get('magn', 1000)],
                         "period": "CUMULATIVE",
                     }
                 ],
                 "measurements": [
                     {
-                        "type": "electricityConsumption",
+                        "type": "touElectricityConsumption",
                         "timestamp": make_utc_timestamp(profile['date_end']),
                         "value": float(profile['ai'])
                     },
                     {
-                        "type": "electricityKiloVoltAmpHours",
+                        "type": "touElectricityKiloVoltAmpHours",
                         "timestamp": make_utc_timestamp(profile['date_end']),
                         "value": float(profile['r1'])
                     }
@@ -154,24 +161,24 @@ class AmonConverter(object):
             "meteringPointId": "c1759810-90f3-012e-0404-34159e211070",
             "readings": [
                 {
-                    "type_": "electricityConsumption",
+                    "type_": "touElectricityConsumption",
                     "unit": "kWh",
                     "period": "INSTANT",
                 },
                 {
-                    "type_": "electricityKiloVoltAmpHours",
+                    "type_": "touElectricityKiloVoltAmpHours",
                     "unit": "kVArh",
                     "period": "INSTANT",
                 }
             ],
             "measurements": [
                 {
-                    "type_": "electricityConsumption",
+                    "type_": "touElectricityConsumption",
                     "timestamp": "2010-07-02T11:39:09Z", # UTC
                     "value": 7
                 },
                 {
-                    "type_": "electricityKiloVoltAmpHours",
+                    "type_": "touElectricityKiloVoltAmpHours",
                     "timestamp": "2010-07-02T11:44:09Z", # UTC
                     "value": 6
                 }
@@ -196,14 +203,14 @@ class AmonConverter(object):
                     "meteringPointId": mp_uuid,
                     "readings": [
                         {
-                            "type":  "electricityConsumption",
+                            "type":  "touElectricityConsumption",
                             "unit": "%sWh" % UNITS[measure.get('magn', 1000)],
                             "period": "CUMULATIVE",
                         }
                     ],
                     "measurements": [
                         {
-                            "type": "electricityConsumption",
+                            "type": "touElectricityConsumption",
                             "timestamp": make_utc_timestamp(measure['date_end']),
                             "values":
                                 {
@@ -219,7 +226,7 @@ class AmonConverter(object):
                     "meteringPointId": mp_uuid,
                     "readings": [
                         {
-                            "type": "electricityKiloVoltAmpHours",
+                            "type": "touElectricityKiloVoltAmpHours",
                             "unit": "%sVArh" % UNITS[measure.get('magn', 1000)],
                             "period": "CUMULATIVE",
                             "dailyPeriod": period
@@ -227,80 +234,13 @@ class AmonConverter(object):
                     ],
                     "measurements": [
                         {
-                            "type": "electricityKiloVoltAmpHours",
+                            "type": "touElectricityKiloVoltAmpHours",
                             "timestamp": make_utc_timestamp(measure['date_end']),
                             "value": float(measure['lectura']),
                             "dailyPeriod": period
                         }
                     ]
                 })
-        return res
-
-    def sips_measure_to_amon(self, cups, measures):
-        """Return a list of AMON readinds.
-
-        {
-            "utilityId": "Utility Id",
-            "deviceId": "c1810810-0381-012d-25a8-0017f2cd3574",
-            "meteringPointId": "c1759810-90f3-012e-0404-34159e211070",
-            "readings": [
-                {
-                    "type_": "electricityConsumption",
-                    "unit": "kWh",
-                    "period": "INSTANT",
-                },
-                {
-                    "type_": "electricityKiloVoltAmpHours",
-                    "unit": "kVArh",
-                    "period": "INSTANT",
-                }
-            ],
-            "measurements": [
-                {
-                    "type_": "electricityConsumption",
-                    "timestamp": "2010-07-02T11:39:09Z", # UTC
-                    "value": 7
-                },
-                {
-                    "type_": "electricityKiloVoltAmpHours",
-                    "timestamp": "2010-07-02T11:44:09Z", # UTC
-                    "value": 6
-                }
-            ]
-        }
-        """
-        O = self.O
-        res = []
-        if not hasattr(measures, '__iter__'):
-            measures = [measures]
-
-        mp_uuid = make_uuid('giscedata.cups.ps', cups)
-        device_uuid = mp_uuid
-        for measure in measures:
-	    for i in range(1,3):
-	        period = 'P%d' % i
-	        period_key = 'activa_%d' % i
-	        res.append({
-	            "deviceId": device_uuid,
-	            "meteringPointId": mp_uuid,
-	            "readings": [
-	                {
-	                    "type":  "electricityConsumption",
-	                    "unit": "%sWh" % UNITS[measure.get('magn', 1000)],
-	                    "period": "INSTANT",
-	                }
-	            ],
-	            "measurements": [
-	                {
-	                    "type": "electricityConsumption",
-	                    "timestamp": make_utc_timestamp(measure['data_final']),
-	                    "values":
-	                        {
-	                            period: float(measure[period_key])
-	                        }
-	                }
-	            ]
-	        })
         return res
 
     def device_to_amon(self, device_ids):
@@ -444,10 +384,10 @@ class AmonConverter(object):
         partner_obj = O.ResPartner
         partner = partner_obj.read(partner_id, ['lang'])
 
-        initial_month = datetime.strptime(date_start, '%Y-%m-%d').strftime('%Y%m')
+        initial_month = int(datetime.strptime(date_start, '%Y-%m-%d').strftime('%Y%m'))
         return remove_none({
             "language": partner['lang'],
-            "initial_month": initial_month,
+            "initialMonth": initial_month,
             })
 
     def find_changes(self, modcons_id, field):
@@ -481,7 +421,7 @@ class AmonConverter(object):
         return remove_none({
           "tariffId": modcon['tarifa'][1],
           "dateStart": make_utc_timestamp(modcon['data_inici']),
-          "dateEnd": make_utc_timestamp(modcon['data_final'])
+          "dateEnd": make_utc_timestamp(eofday(modcon['data_final']))
         })
 
     def power_to_amon(self, modcons_id):
@@ -496,7 +436,7 @@ class AmonConverter(object):
         return remove_none({
           "power": int(modcon['potencia'] * 1000),
           "dateStart": make_utc_timestamp(modcon['data_inici']),
-          "dateEnd": make_utc_timestamp(modcon['data_final'])
+          "dateEnd": make_utc_timestamp(eofday(modcon['data_final']))
         })
 
     def tariffHistory_to_amon(self, modcons_id):
@@ -513,9 +453,9 @@ class AmonConverter(object):
             {
                 "tariffId": modcon['tarifa'][1],
                 "dateStart": make_utc_timestamp(modcon['data_inici']),
-                "dateEnd": make_utc_timestamp(modcon['data_final'])
+                "dateEnd": make_utc_timestamp(eofday(modcon['data_final']))
             }
-            for modcon in self.find_changes(modcons_id, 'tarifa')[:-1]]
+            for modcon in self.find_changes(modcons_id, 'tarifa')]
 
     def powerHistory_to_amon(self, modcons_id):
         """ Convert powerHistory to AMON.
@@ -531,9 +471,9 @@ class AmonConverter(object):
             {
                 "power": int(modcon['potencia'] * 1000),
                 "dateStart": make_utc_timestamp(modcon['data_inici']),
-                "dateEnd": make_utc_timestamp(modcon['data_final'])
+                "dateEnd": make_utc_timestamp(eofday(modcon['data_final']))
             }
-            for modcon in self.find_changes(modcons_id, 'potencia')[:-1]]
+            for modcon in self.find_changes(modcons_id, 'potencia')]
 
     def contract_to_amon(self, contract_ids, context=None):
         """Converts contracts to AMON.
@@ -657,7 +597,8 @@ class AmonConverter(object):
 
         if not hasattr(contract_ids, '__iter__'):
             contract_ids = [contract_ids]
-        fields_to_read = ['modcontractual_activa', 'modcontractuals_ids', 'name', 'cups', 'comptadors', 'state', 'data_alta']
+        fields_to_read = ['modcontractual_activa', 'modcontractuals_ids',
+            'name', 'cups', 'comptadors', 'state', 'data_alta', 'data_baixa']
         for polissa in pol.read(contract_ids, fields_to_read):
             if polissa['state'] in ('esborrany', 'validar'):
                 continue
@@ -685,7 +626,7 @@ class AmonConverter(object):
                 'ownerId': make_uuid('res.partner', modcon['titular'][0]),
                 'payerId': make_uuid('res.partner', modcon['pagador'][0]),
                 'dateStart': make_utc_timestamp(polissa['data_alta']),
-                'dateEnd': make_utc_timestamp(modcon['data_final']),
+                'dateEnd': make_utc_timestamp(eofday(polissa['data_baixa'])),
                 'contractId': polissa['name'],
                 'tariffId': modcon['tarifa'][1],
                 'tariff_': self.tariff_to_amon(modcons_id),
@@ -695,7 +636,7 @@ class AmonConverter(object):
                 'powerHistory': self.powerHistory_to_amon(modcons_id),
                 'version': int(modcon['name']),
                 'climaticZone': self.cups_to_climaticZone(modcon['cups'][0]),
-                'activityCode': modcon['cnae'] and modcon['cnae'][1] or None,
+                'activityCode': modcon['cnae'] and modcon['cnae'][1].split(' - ')[0] or None,
                 'customer': {
                     'customerId': make_uuid('res.partner', modcon['titular'][0]),
                     'buildingData': self.building_to_amon(building_id),
@@ -705,12 +646,6 @@ class AmonConverter(object):
                 'devices': self.devices_to_amon(polissa['comptadors']),
                 'report': self.report_to_amon(polissa['data_alta'], modcon['pagador'][0])
             }
-            if first:
-                contract['devices'].append(
-                    self.device_to_amon(
-                       '1970-01-01',
-                        modcon['data_inici'],
-                        modcon['cups'][1]))
             cups = self.cups_to_amon(modcon['cups'][0])
             recursive_update(contract, cups)
             res.append(remove_none(contract, context))
@@ -788,7 +723,7 @@ class AmonConverter(object):
         else:
             return None
 
-    def cchfact_to_amoun(self, cups, date_last_uploaded):
+    def cch_to_amon(self, cups, date_last_uploaded, collection_to_find, consolidate):
         """ Mongo F5D measure to AMON
         "measurements":
          [
@@ -800,24 +735,37 @@ class AmonConverter(object):
         }]
         """
         #Get measures CCH from Mongo
-        mongo = setup_mongodb()
-        collection = mongo['tg_cchfact']
+        O = self.O
+        collection = self.mongo[collection_to_find]
         measures = collection.find({"name": cups, "datetime" : {"$gt":date_last_uploaded}})
 
+        if measures.count() == 0:
+            return {}, {}
+
         #Build JSON
+        cups = O.GiscedataCupsPs.get([('name', '=', cups)])
+        polissa_id = max(cups.polisses.polissa_id.id)
+        meter_name = O.GiscedataLecturesComptador.read([('polissa', '=', polissa_id)])[0]['name']
+        device_uuid = make_uuid('giscedata.lectures.comptador', meter_name)
+        metering_uuid = make_uuid('giscedata.cups.ps', cups)
         res = {}
+        res['meteringPointId'] = metering_uuid
+        res['deviceId'] = device_uuid
         res['measurements'] = []
+        res['readings'] = []
         for measure in measures:
             measure_json = {}
             measure_json['type'] = "electricityConsumption"
-            measure_json['consolidated'] = True
-
+            measure_json['consolidated'] = consolidate
             measure_json['timestamp'] =  datetime.strftime(measure['datetime'], "%Y-%m-%dT%H:%M:%SZ")
             measure_json['value'] = measure['ai']
             res['measurements'].append(measure_json)
-
-        json_data = json.dumps(res)
-        return json_data
+            reading_json = {}
+            reading_json['type'] = measure_json['type']
+            reading_json['period'] = "INSTANT"
+            reading_json['unit'] = 'Wh'
+            res['readings'].append(reading_json)
+        return res,  measure_json['timestamp']
 
 def check_response(response, amon_data):
     logger.debug('Handlers: %s Class: %s' % (logger.handlers, logger))
