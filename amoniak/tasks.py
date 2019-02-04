@@ -28,6 +28,9 @@ def enqueue_all_amon_measures(tg_enabled=True, bucket=500):
     if not tg_enabled:
         return
 
+    O = setup_peek()
+    em = setup_empowering_api()
+
     serials = open('serials', 'r')
     for serial in serials:
         meter_name = serial.replace('\n', '').strip()
@@ -46,7 +49,9 @@ def enqueue_all_amon_measures(tg_enabled=True, bucket=500):
         measures_to_push = []
         for idx, measure in enumerate(measures):
             if idx and not idx % bucket:
-                j = push_amon_measures.delay(tg_enabled, measures_to_push)
+                j = push_amon_measures.delay(
+                    tg_enabled, measures_to_push, O , em
+                )
                 logger.info("Job id:%s | %s/%s/%s" % (
                     j.id, meter_name, idx, bucket)
                 )
@@ -57,7 +62,7 @@ def enqueue_all_amon_measures(tg_enabled=True, bucket=500):
 def enqueue_measures(tg_enabled=True, polisses_ids=[], bucket=500):
     # First get all the contracts that are in sync
     O = setup_peek()
-    #em = setup_empowering_api()
+    em = setup_empowering_api()
     # TODO: Que fem amb les de baixa? les agafem igualment? només les que
     # TODO: faci menys de X que estan donades de baixa?
     search_params = [('etag', '!=', False),
@@ -153,7 +158,7 @@ def enqueue_measures(tg_enabled=True, polisses_ids=[], bucket=500):
 
     pops = popper.pop(bucket)
     while pops:
-        j = push_amon_measures.delay(tg_enabled, pops)
+        j = push_amon_measures.delay(tg_enabled, pops, O, em)
         logger.info("Job id:%s | %s/%s" % (
              j.id, len(pops), len(popper.items))
         )
@@ -389,12 +394,12 @@ def enqueue_remove_contracts(tg_enabled, contracts_id=[]):
 
 @job(setup_queue(name='measures'), connection=setup_redis(), timeout=3600)
 @sentry.capture_exceptions
-def push_amon_measures(tg_enabled, measures_ids):
+def push_amon_measures(tg_enabled, measures_ids, O, em):
     """Pugem les mesures a l'Insight Engine
+    O: erp connection
+    em: emporwering connection
     """
 
-    em = setup_empowering_api()
-    O = setup_peek()
     amon = AmonConverter(O)
     start = datetime.now()
     if tg_enabled:
