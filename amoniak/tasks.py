@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import
 from datetime import datetime,date,timedelta
+from operator import itemgetter
 import logging
 import urllib2
 
@@ -171,7 +172,7 @@ def enqueue_new_contracts(tg_enabled, polisses_ids =[], bucket=500):
     ]
     search_params.append(('polissa.tarifa.name', 'in', residential_tariffs))
 
-    #em = setup_empowering_api()
+    em = setup_empowering_api()
 
     # NOTE: Remove online update, use deferred one
     #items = em.contracts().get(sort="[('_updated', -1)]")['_items']
@@ -187,7 +188,7 @@ def enqueue_new_contracts(tg_enabled, polisses_ids =[], bucket=500):
 
     O = setup_peek()
     cids = O.GiscedataLecturesComptador.search(search_params,
-        context={'active_test': False} 
+        context={'active_test': False}
     )
     if not cids:
         return
@@ -203,12 +204,13 @@ def enqueue_new_contracts(tg_enabled, polisses_ids =[], bucket=500):
     popper = Popper(contracts_ids)
     pops = popper.pop(bucket)
     while pops:
-        j = push_contracts.delay(pops)
+        j = push_contracts.delay(pops, O, em)
         logger.info("Job id:%s" % j.id)
         pops = popper.pop(bucket)
 
 
 def enqueue_contracts(tg_enabled, contracts_id=[]):
+    tasks = []
     O = setup_peek()
     em = setup_empowering_api()
     # Busquem els que hem d'actualitzar
@@ -277,19 +279,61 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
             if modcons_to_update:
                 logger.info('Polissa %s actualitzada a %s després de %s' % (
                     polissa['name'], w_date, last_updated))
-                push_modcontracts.delay(modcons_to_update, polissa['etag'])
+                job = push_modcontracts.delay(
+                    modcons_to_update, polissa['etag'], O, em
+                )
+                tasks.append(job)
+
             if is_new_contract:
                 logger.info("La polissa %s te etag pero ha estat borrada "
                             "d'empowering, es torna a pujar" % polissa['name'])
-                push_contracts.delay([polissa['id']])
+                job = push_contracts.delay(
+                    [polissa['id']], O, em
+                )
+                tasks.append(job)
 
         except xmlrpclib.ProtocolError as e:
+            msg = "Ha ocurrido un error inesperado con la conexión al ERP, " \
+                  "volviendo a conectar: %s"
+            logger.exception(msg, str(e))
             O = setup_peek()
-            print e
         except (libsaas.http.HTTPError, urllib2.HTTPError) as e:
+            msg = "Ha ocurrido un error inesperado con la conexión con BEEDATA, " \
+                  "volviendo a conectar: %s"
+            logger.exception(msg, str(e))
+            em.logout()
             em = setup_empowering_api()
-            print e
+
+    failed_tasks = _check_failed_tasks(tasks)
+    errors = [
+        "Polissa: {elem[0]}, error: {elem[1]}".format(elem=failed_info)
+        for _, failed_info in failed_tasks.iteritems()
+    ]
+    msg = "Enqueue contracts finalizado, cerrando sesión con BEEDATA" \
+          if not errors else "\n".join(errors)
+    logger.info(msg)
     em.logout()
+
+
+def _check_failed_tasks(tasks):
+    '''
+    Check if a job has failed, if so return the list with all these jobs.
+    '''
+    get_polissa_id = itemgetter(0)
+    result = {}
+
+    for index, job_ in enumerate(tasks):
+        if job_.is_finished:
+            try:
+                job_.result
+            except Exception as e:
+                result[job_.id] = (get_polissa_id(job_.args[0]), str(e))
+            finally:
+                tasks.pop(index)
+                tasks = tasks[:]
+
+    return result
+
 
 def enqueue_remove_contracts(tg_enabled, contracts_id=[]):
     O = setup_peek()
@@ -329,7 +373,9 @@ def enqueue_remove_contracts(tg_enabled, contracts_id=[]):
             if modcons_to_update:
                 logger.info('Polissa %s actualitzada a %s després de %s' % (
                     polissa['name'], w_date, last_updated))
-                push_modcontracts.delay(modcons_to_update, polissa['etag'])
+                push_modcontracts.delay(
+                    modcons_to_update, polissa['etag'], O, em
+                )
         except xmlrpclib.ProtocolError as e:
             O = setup_peek()
             print e
@@ -403,11 +449,11 @@ def push_amon_measures(tg_enabled, measures_ids):
 
 @job(setup_queue(name='contracts'), connection=setup_redis(), timeout=3600)
 @sentry.capture_exceptions
-def push_modcontracts(modcons, etag):
+def push_modcontracts(modcons, etag, O, em):
     """modcons is a list of modcons to push
+    O: erp connection
+    em: emporwering connection
     """
-    em = setup_empowering_api()
-    O = setup_peek()
     amon = AmonConverter(O)
     fields_to_read = ['data_inici', 'polissa_id']
     modcons = O.GiscedataPolissaModcontractual.read(modcons, fields_to_read)
@@ -426,11 +472,11 @@ def push_modcontracts(modcons, etag):
 
 @job(setup_queue(name='contracts'), connection=setup_redis(), timeout=3600)
 @sentry.capture_exceptions
-def push_contracts(contracts_id):
+def push_contracts(contracts_id, O, em):
     """Pugem els contractes
+    O: erp connection
+    em: emporwering connection
     """
-    em = setup_empowering_api()
-    O = setup_peek()
     amon = AmonConverter(O)
     if not isinstance(contracts_id, (list, tuple)):
         contracts_id = [contracts_id]
