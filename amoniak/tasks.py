@@ -25,6 +25,176 @@ sentry = Client()
 logger = logging.getLogger('amon')
 
 
+class EmpoweringTasks(object):
+
+    def __init__(self, O, em):
+        self._O = O
+        self._em = em
+
+    @job(setup_queue(name='measures'), connection=setup_redis(), timeout=3600)
+    @sentry.capture_exceptions
+    def push_amon_measures(self, tg_enabled, measures_ids):
+        """Pugem les mesures a l'Insight Engine
+        O: erp connection
+        em: emporwering connection
+        """
+
+        amon = AmonConverter(self._O)
+        start = datetime.now()
+        if tg_enabled:
+            mongo = setup_mongodb()
+            collection = mongo['tg_billing']
+            mdbmeasures = collection.find({'id': {'$in': measures_ids}},
+                                          {'name': 1, 'id': 1, '_id': 0,
+                                           'ai': 1, 'r1': 1, 'date_end': 1},
+                                          sort=[('date_end', pymongo.ASCENDING)])
+            measures = [x for x in mdbmeasures]
+        else:
+            fields_to_read = ['comptador', 'name', 'tipus', 'periode', 'lectura']
+
+            measures = self._O.GiscedataLecturesLectura.read(measures_ids, fields_to_read)
+            # NOTE: Tricky write_date and end_date rename
+            for idx, item in enumerate(measures):
+                measure_id = item['id']
+                measures[idx]['write_date'] = \
+                                              self._O.GiscedataLecturesLectura.perm_read(measure_id)[0]['write_date']
+                measures[idx]['date_end'] = measures[idx]['name']
+
+        logger.info("Enviant de %s (id:%s) a %s (id:%s)" % (
+            measures[-1]['date_end'], measures[-1]['id'],
+            measures[0]['date_end'], measures[0]['id']
+        ))
+        measures_to_push = amon.measure_to_amon(measures)
+        stop = datetime.now()
+        logger.info('Mesures transformades en %s' % (stop - start))
+        start = datetime.now()
+
+        measures_pushed = self._em.residential_timeofuse_amon_measures().create(measures_to_push)
+        # TODO: Pending to check whether all measure were properly commited
+
+        if tg_enabled:
+            for measure in measures:
+                from .amon import get_device_serial
+
+                serial = get_device_serial(last_measure['name'])
+                cids = self._O.GiscedataLecturesComptador.search([('name', '=', serial)], context={'active_test': False})
+                self._O.GiscedataLecturesComptador.update_empowering_last_measure(cids, '%s' % measure['write_date'])
+                mongo.connection.disconnect()
+        else:
+            for measure in measures:
+                self._O.GiscedataLecturesComptador.update_empowering_last_measure(
+                    [measure['comptador'][0]], '%s' % measure['write_date']
+                )
+        stop = datetime.now()
+        logger.info('Mesures enviades en %s' % (stop - start))
+        logger.info("%s measures creades" % len(measures_pushed))
+
+    @job(setup_queue(name='contracts'), connection=setup_redis(), timeout=3600)
+    @sentry.capture_exceptions
+    def push_modcontracts(self, modcons, etag):
+        """modcons is a list of modcons to push
+        O: erp connection
+        em: emporwering connection
+        """
+        amon = AmonConverter(self._O)
+        fields_to_read = ['data_inici', 'polissa_id']
+        modcons = self._O.GiscedataPolissaModcontractual.read(modcons, fields_to_read)
+        modcons = sorted_by_key(modcons, 'data_inici')
+        for modcon in modcons:
+            amon_data = amon.contract_to_amon(
+                modcon['polissa_id'][0],
+                {'modcon_id': modcon['id']}
+            )[0]
+            response = self._em.contract(modcon['polissa_id'][1]).update(amon_data, etag)
+            if check_response(response, amon_data):
+                etag = response['_etag']
+
+        self._O.GiscedataPolissa.write(modcon['polissa_id'][0], {'etag': etag})
+
+
+    @job(setup_queue(name='contracts'), connection=setup_redis(), timeout=3600)
+    @sentry.capture_exceptions
+    def push_contracts(self, contracts_id):
+        """Pugem els contractes
+        O: erp connection
+        em: emporwering connection
+        """
+        amon = AmonConverter(self._O)
+        if not isinstance(contracts_id, (list, tuple)):
+            contracts_id = [contracts_id]
+
+        for pol in self._O.GiscedataPolissa.read(contracts_id, ['modcontractuals_ids', 'name']):
+            logger.info("Polissa %s" % pol['name'])
+            cid = pol['id']
+            upd = []
+            first = True
+            try:
+                for modcon_id in reversed(pol['modcontractuals_ids']):
+                    amon_data = amon.contract_to_amon(
+                        cid,
+                        {'modcon_id': modcon_id, 'first': first}
+                    )[0]
+                    if first:
+                        response = self._em.contracts().create(amon_data)
+                        first = False
+                    else:
+                        etag = upd[-1]['_etag']
+                        response = self._em.contract(pol['name']).update(amon_data, etag)
+                    if check_response(response, amon_data):
+                        upd.append(response)
+            except Exception as e:
+                logger.info("Exception id: %s %s" % (pol['name'], str(e)))
+                continue
+            if upd:
+                etag = upd[-1]['_etag']
+                logger.info("Polissa id: %s -> etag %s" % (pol['name'], etag))
+                self._O.GiscedataPolissa.write(cid, {'etag': etag})
+            else:
+                logger.info("Polissa id: %s no etag found" % (pol['name']))
+
+
+
+    @job(setup_queue(name='api_sender'), connection=setup_redis(), timeout=3600)
+    @sentry.capture_exceptions
+    def push_amon_cch(self, column, collection, consolidate):
+        mongo_conn = setup_mongodb()
+        gp_obj = self._O.GiscedataPolissa
+        glc_obj = self._O.GiscedataLecturesComptador
+        filters = [
+            ('cups.empowering', '=', True),
+            ('state', '=', 'activa'),
+            ('active', '=', True),
+        ]
+        fields_to_read = ['cups', 'data_alta']
+        id_polissa_list = gp_obj.search(filters)
+        amon = AmonConverter(self._O, mongo_conn)
+
+        for id_contract in id_polissa_list:
+            try:
+                last_upload_date, id_last_update = self.__get_last_cch_upload(id_contract, column)
+                json_to_send, reading_date = amon.cch_to_amon(
+                    gp_obj.read(id_contract, fields_to_read)['cups'][1],
+                    last_upload_date,
+                    collection,
+                    consolidate
+                )
+                if json_to_send != {}:
+                    response = self._em.amon_measures().create(json_to_send)
+                    glc_obj.write(id_last_update, {column: reading_date})
+            except Exception as e:
+                logger.info("Exception id: %s %s" % (id_contract, str(e)))
+
+    def __get_last_cch_upload(self, id_contract, column):
+        glc_obj = self._O.GiscedataLecturesComptador
+        id_last_upload = glc_obj.search(
+            [('polissa', '=', id_contract), ('active', '=', True)],
+            limit=1, order=column + ' desc'
+        )[0]
+        last_date = glc_obj.read(id_last_upload, [column])[column] or '1970-01-01 00:00:00'
+
+        return datetime.strptime(last_date,"%Y-%m-%d %H:%M:%S"), id_last_upload
+
+
 def enqueue_all_amon_measures(tg_enabled=True, bucket=500):
     if not tg_enabled:
         return
@@ -404,172 +574,4 @@ def enqueue_cchval():
     push_amon_cch('empowering_last_p5d_measure', 'tg_cchval', False)
 
 
-class EmpoweringTasks(object):
-
-    def __init__(self, O, em):
-        self._O = O
-        self._em = em
-
-    @job(setup_queue(name='measures'), connection=setup_redis(), timeout=3600)
-    @sentry.capture_exceptions
-    def push_amon_measures(self, tg_enabled, measures_ids):
-        """Pugem les mesures a l'Insight Engine
-        O: erp connection
-        em: emporwering connection
-        """
-
-        amon = AmonConverter(self._O)
-        start = datetime.now()
-        if tg_enabled:
-            mongo = setup_mongodb()
-            collection = mongo['tg_billing']
-            mdbmeasures = collection.find({'id': {'$in': measures_ids}},
-                                          {'name': 1, 'id': 1, '_id': 0,
-                                           'ai': 1, 'r1': 1, 'date_end': 1},
-                                          sort=[('date_end', pymongo.ASCENDING)])
-            measures = [x for x in mdbmeasures]
-        else:
-            fields_to_read = ['comptador', 'name', 'tipus', 'periode', 'lectura']
-
-            measures = self._O.GiscedataLecturesLectura.read(measures_ids, fields_to_read)
-            # NOTE: Tricky write_date and end_date rename
-            for idx, item in enumerate(measures):
-                measure_id = item['id']
-                measures[idx]['write_date'] = \
-                                              self._O.GiscedataLecturesLectura.perm_read(measure_id)[0]['write_date']
-                measures[idx]['date_end'] = measures[idx]['name']
-
-        logger.info("Enviant de %s (id:%s) a %s (id:%s)" % (
-            measures[-1]['date_end'], measures[-1]['id'],
-            measures[0]['date_end'], measures[0]['id']
-        ))
-        measures_to_push = amon.measure_to_amon(measures)
-        stop = datetime.now()
-        logger.info('Mesures transformades en %s' % (stop - start))
-        start = datetime.now()
-
-        measures_pushed = self._em.residential_timeofuse_amon_measures().create(measures_to_push)
-        # TODO: Pending to check whether all measure were properly commited
-
-        if tg_enabled:
-            for measure in measures:
-                from .amon import get_device_serial
-
-                serial = get_device_serial(last_measure['name'])
-                cids = self._O.GiscedataLecturesComptador.search([('name', '=', serial)], context={'active_test': False})
-                self._O.GiscedataLecturesComptador.update_empowering_last_measure(cids, '%s' % measure['write_date'])
-                mongo.connection.disconnect()
-        else:
-            for measure in measures:
-                self._O.GiscedataLecturesComptador.update_empowering_last_measure(
-                    [measure['comptador'][0]], '%s' % measure['write_date']
-                )
-        stop = datetime.now()
-        logger.info('Mesures enviades en %s' % (stop - start))
-        logger.info("%s measures creades" % len(measures_pushed))
-
-    @job(setup_queue(name='contracts'), connection=setup_redis(), timeout=3600)
-    @sentry.capture_exceptions
-    def push_modcontracts(self, modcons, etag):
-        """modcons is a list of modcons to push
-        O: erp connection
-        em: emporwering connection
-        """
-        amon = AmonConverter(self._O)
-        fields_to_read = ['data_inici', 'polissa_id']
-        modcons = self._O.GiscedataPolissaModcontractual.read(modcons, fields_to_read)
-        modcons = sorted_by_key(modcons, 'data_inici')
-        for modcon in modcons:
-            amon_data = amon.contract_to_amon(
-                modcon['polissa_id'][0],
-                {'modcon_id': modcon['id']}
-            )[0]
-            response = self._em.contract(modcon['polissa_id'][1]).update(amon_data, etag)
-            if check_response(response, amon_data):
-                etag = response['_etag']
-
-        self._O.GiscedataPolissa.write(modcon['polissa_id'][0], {'etag': etag})
-
-
-    @job(setup_queue(name='contracts'), connection=setup_redis(), timeout=3600)
-    @sentry.capture_exceptions
-    def push_contracts(self, contracts_id):
-        """Pugem els contractes
-        O: erp connection
-        em: emporwering connection
-        """
-        amon = AmonConverter(self._O)
-        if not isinstance(contracts_id, (list, tuple)):
-            contracts_id = [contracts_id]
-
-        for pol in self._O.GiscedataPolissa.read(contracts_id, ['modcontractuals_ids', 'name']):
-            logger.info("Polissa %s" % pol['name'])
-            cid = pol['id']
-            upd = []
-            first = True
-            try:
-                for modcon_id in reversed(pol['modcontractuals_ids']):
-                    amon_data = amon.contract_to_amon(
-                        cid,
-                        {'modcon_id': modcon_id, 'first': first}
-                    )[0]
-                    if first:
-                        response = self._em.contracts().create(amon_data)
-                        first = False
-                    else:
-                        etag = upd[-1]['_etag']
-                        response = self._em.contract(pol['name']).update(amon_data, etag)
-                    if check_response(response, amon_data):
-                        upd.append(response)
-            except Exception as e:
-                logger.info("Exception id: %s %s" % (pol['name'], str(e)))
-                continue
-            if upd:
-                etag = upd[-1]['_etag']
-                logger.info("Polissa id: %s -> etag %s" % (pol['name'], etag))
-                self._O.GiscedataPolissa.write(cid, {'etag': etag})
-            else:
-                logger.info("Polissa id: %s no etag found" % (pol['name']))
-
-
-
-    @job(setup_queue(name='api_sender'), connection=setup_redis(), timeout=3600)
-    @sentry.capture_exceptions
-    def push_amon_cch(self, column, collection, consolidate):
-        mongo_conn = setup_mongodb()
-        gp_obj = self._O.GiscedataPolissa
-        glc_obj = self._O.GiscedataLecturesComptador
-        filters = [
-            ('cups.empowering', '=', True),
-            ('state', '=', 'activa'),
-            ('active', '=', True),
-        ]
-        fields_to_read = ['cups', 'data_alta']
-        id_polissa_list = gp_obj.search(filters)
-        amon = AmonConverter(self._O, mongo_conn)
-
-        for id_contract in id_polissa_list:
-            try:
-                last_upload_date, id_last_update = self.__get_last_cch_upload(id_contract, column)
-                json_to_send, reading_date = amon.cch_to_amon(
-                    gp_obj.read(id_contract, fields_to_read)['cups'][1],
-                    last_upload_date,
-                    collection,
-                    consolidate
-                )
-                if json_to_send != {}:
-                    response = self._em.amon_measures().create(json_to_send)
-                    glc_obj.write(id_last_update, {column: reading_date})
-            except Exception as e:
-                logger.info("Exception id: %s %s" % (id_contract, str(e)))
-
-    def __get_last_cch_upload(self, id_contract, column):
-        glc_obj = self._O.GiscedataLecturesComptador
-        id_last_upload = glc_obj.search(
-            [('polissa', '=', id_contract), ('active', '=', True)],
-            limit=1, order=column + ' desc'
-        )[0]
-        last_date = glc_obj.read(id_last_upload, [column])[column] or '1970-01-01 00:00:00'
-
-        return datetime.strptime(last_date,"%Y-%m-%d %H:%M:%S"), id_last_upload
 
