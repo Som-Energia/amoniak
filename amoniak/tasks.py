@@ -397,11 +397,19 @@ def enqueue_remove_contracts(tg_enabled, contracts_id=[]):
 
 
 def enqueue_cchfact():
-    push_amon_cch('empowering_last_f5d_measure', 'tg_cchfact', True)
+    O = setup_peek()
+    em = setup_empowering_api()
+    em_tasks = EmpoweringTasks(O, em)
+
+    em_tasks.push_amon_cch.delay('empowering_last_f5d_measure', 'tg_cchfact', True)
 
 
 def enqueue_cchval():
-    push_amon_cch('empowering_last_p5d_measure', 'tg_cchval', False)
+    O = setup_peek()
+    em = setup_empowering_api()
+    em_tasks = EmpoweringTasks(O, em)
+
+    em_tasks.push_amon_cch.delay('empowering_last_p5d_measure', 'tg_cchval', False)
 
 
 class EmpoweringTasks(object):
@@ -533,7 +541,7 @@ class EmpoweringTasks(object):
 
 
 
-    @job(setup_queue(name='api_sender'), connection=setup_redis(), timeout=3600)
+    @job(setup_queue(name='api_cch_sender'), connection=setup_redis(), timeout=3600)
     @sentry.capture_exceptions
     def push_amon_cch(self, column, collection, consolidate):
         mongo_conn = setup_mongodb()
@@ -547,7 +555,6 @@ class EmpoweringTasks(object):
         fields_to_read = ['cups', 'data_alta']
         id_polissa_list = gp_obj.search(filters)
         amon = AmonConverter(self._O, mongo_conn)
-
         for id_contract in id_polissa_list:
             try:
                 last_upload_date, id_last_update = self.__get_last_cch_upload(id_contract, column)
