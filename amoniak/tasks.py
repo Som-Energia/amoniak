@@ -579,5 +579,3 @@ def enqueue_cchval():
 
     em_tasks.push_amon_cch.delay('empowering_last_p5d_measure', 'tg_cchval', False)
 
-
-
