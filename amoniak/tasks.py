@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import
-from datetime import datetime,date,timedelta
+from datetime import datetime, date, timedelta
 from operator import itemgetter
 import logging
 import urllib2
 
 import libsaas
 import xmlrpclib
-import sys
-import json
 
 from .utils import (
     setup_peek, setup_mongodb, setup_empowering_api, setup_redis,
