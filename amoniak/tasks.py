@@ -488,6 +488,7 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
     msg = "Enqueue contracts finalizado, cerrando sesión con BEEDATA" \
           if not errors else "\n".join(errors)
     logger.info(msg)
+    em.logout()
 
 
 def _check_failed_tasks(tasks):
@@ -569,7 +570,19 @@ def enqueue_cchfact():
     em = setup_empowering_api()
     em_tasks = EmpoweringTasks(O, em)
 
-    em_tasks.push_amon_cch.delay('empowering_last_f5d_measure', 'tg_cchfact', True)
+    logger.info('Encolando la subida de las curvas f5d')
+
+    task = em_tasks.push_amon_cch.delay('empowering_last_f5d_measure', 'tg_cchfact', True)
+    try:
+        task._result
+    except Exception as e:
+        msg = "Se ha producido una excepción inesperada en la funcion %s: %s"
+        logger.exception(msg, task.description, str(e))
+    else:
+        msg = "La tarea %s ha finalizado correctamente"
+        logger.info(msg, task.drescription)
+
+    em.logout()
 
 
 def enqueue_cchval():
@@ -577,5 +590,14 @@ def enqueue_cchval():
     em = setup_empowering_api()
     em_tasks = EmpoweringTasks(O, em)
 
-    em_tasks.push_amon_cch.delay('empowering_last_p5d_measure', 'tg_cchval', False)
+    task = em_tasks.push_amon_cch.delay('empowering_last_p5d_measure', 'tg_cchval', False)
+    try:
+        task._result
+    except Exception as e:
+        msg = "Se ha producido una excepción inesperada en la funcion %s: %s"
+        logger.exception(msg, task.description, str(e))
+    else:
+        msg = "La tarea %s ha finalizado correctamente"
+        logger.info(msg, task.drescription)
 
+    em.logout()
