@@ -114,8 +114,8 @@ def setup_peek(**kwargs):
 
 
 def setup_mongodb(**kwargs):
-    config = config_from_environment('MONGODB', ['host', 'database'], **kwargs)
-    mongo = pymongo.MongoClient(host=config['host'])
+    config = config_from_environment('MONGODB', ['host', 'database', 'uri'], **kwargs)
+    mongo = pymongo.MongoClient(host=config['uri'])
     return mongo[config['database']]
 
 

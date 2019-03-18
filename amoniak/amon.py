@@ -757,8 +757,8 @@ class AmonConverter(object):
             measure_json = {}
             measure_json['type'] = "electricityConsumption"
             measure_json['consolidated'] = consolidate
-            measure_json['timestamp'] =  datetime.strftime(measure['datetime'], "%Y-%m-%dT%H:%M:%SZ")
-            measure_json['value'] = measure['ai']
+            measure_json['timestamp'] = datetime.strftime(measure['datetime'], "%Y-%m-%dT%H:%M:%SZ")
+            measure_json['value'] = measure.get('ai', 0.0)
             res['measurements'].append(measure_json)
             reading_json = {}
             reading_json['type'] = measure_json['type']
