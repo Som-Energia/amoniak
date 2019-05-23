@@ -93,8 +93,8 @@ class EmpoweringTasks(object):
             response = self._em.contract(modcon['polissa_id'][1]).update(amon_data, etag)
             if check_response(response, amon_data):
                 etag = response['_etag']
-
-            self._O.GiscedataPolissa.write(modcon['polissa_id'][0], {'etag': etag})
+                writedate = self._O.GiscedataPolissaModcontractual.perm_read([modcon['id']])[0]['write_date']
+                self._O.GiscedataPolissa.write(modcon['polissa_id'][0], {'etag': etag, 'empowering_last_update': writedate})
 
     @sentry.capture_exceptions
     def push_contracts(self, contracts_id):
@@ -122,6 +122,8 @@ class EmpoweringTasks(object):
                         response = self._em.contract(pol['name']).update(amon_data, etag)
                     if check_response(response, amon_data):
                         upd.append(response)
+                        writedate = self._O.GiscedataPolissaModcontractual.perm_read([modcon_id])[0]['write_date']
+                        self._O.GiscedataPolissa.write(cid, {'empowering_last_update': writedate})
             except Exception as e:
                 logger.info("Exception id: %s %s" % (pol['name'], str(e)))
                 continue

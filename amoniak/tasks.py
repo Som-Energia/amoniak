@@ -248,67 +248,16 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
         em_tasks._em.logout()
         return
 
-    fields = ['name', 'etag', 'cups', 'modcontractual_activa', 'comptadors']
+    fields = ['name', 'etag', 'cups', 'modcontractual_activa', 'comptadors', 'empowering_last_update']
     for polissa in O.GiscedataPolissa.read(polisses_ids, fields):
         try:
             modcons_to_update = []
             is_new_contract = False
-            contract = None
-            try:
-                contract = em.contract(polissa['name']).get()
-                last_updated = contract['_updated']
-                last_updated = make_local_timestamp(last_updated)
-            except (libsaas.http.HTTPError, urllib2.HTTPError) as e:
-                if e.code != 404:
-                    msg = "Error obteniendo informacion de la poliza %s: %s"
-                    logger.exception(msg, polissa['name'], str(e))
-                    em.logout()
-                    em = setup_empowering_api()
-                    continue
+            contract = polissa['name']
+            modcon_id = O.GiscedataPolissaModcontractual.search([('polissa_id','=',polissa['id']), ('active','=',True)])[0]
+            writedate = O.GiscedataPolissaModcontractual.perm_read(modcon_id)[0]['write_date']
+            if not polissa['empowering_last_update']:
                 is_new_contract = True
-                last_updated = '0'
-
-            building_id = O.EmpoweringCupsBuilding.search([('cups_id', '=', polissa['cups'][0])])
-
-            if building_id:
-                w_date = O.EmpoweringCupsBuilding.perm_read(building_id)[0]['write_date']
-                if w_date > last_updated:
-                    modcon_id = polissa['modcontractual_activa'][0]
-                    modcons_to_update.append(modcon_id)
-
-            if not is_new_contract:
-                modcons_id = O.GiscedataPolissaModcontractual.search([('polissa_id','=',polissa['id'])])
-                for modcon_id in modcons_id:
-                    w_date = O.GiscedataPolissaModcontractual.perm_read(modcon_id)[0]['write_date']
-                    if w_date > last_updated:
-                        logger.info('La modcontractual %d a actualitzar write_'
-                                    'date: %s last_update: %s' % (
-                            modcon_id, w_date, last_updated))
-                        modcons_to_update.append(modcon_id)
-                        continue
-
-                # Workaround to identify new meter scenarios. Not checking meter
-                # dateStart in order to prevent ERP overload. Just checking amount
-                # of meters related to a contract
-                if (contract is not None and 'devices' in contract and
-                    len(contract['devices']) != len(polissa['comptadors'])):
-                    modcon_id = polissa['modcontractual_activa'][0]
-                    modcons_to_update.append(modcon_id)
-
-            modcons_to_update = list(set(modcons_to_update))
-
-            if modcons_to_update:
-                msg = 'Polissa %s actualitzada a %s després de %s'
-                logger.info(msg, polissa['name'], w_date, last_updated)
-                msg = "Encolando task push_modcontracts, polissa %s"
-                logger.info(msg, polissa['name'])
-                etag = str(contract['_etag'])
-                job = q.enqueue_call(
-                    func=em_tasks.push_modcontracts,
-                    args=(modcons_to_update, etag,)
-                )
-                tasks.append(job)
-
             if is_new_contract:
                 logger.info("La polissa %s te etag pero ha estat borrada "
                             "d'empowering, es torna a pujar" % polissa['name'])
@@ -319,6 +268,66 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
                     args=([polissa['id']],)
                 )
                 tasks.append(job)
+                continue
+
+
+            if writedate <= polissa['empowering_last_update']: #to do: if not empowering_last_update
+                continue
+##            try:
+#                contract = em.contract(polissa['name']).get()
+#                last_updated = contract['_updated']
+#                last_updated = make_local_timestamp(last_updated)
+#            except (libsaas.http.HTTPError, urllib2.HTTPError) as e:
+#                if e.code != 404:
+#                    msg = "Error obteniendo informacion de la poliza %s: %s"
+#                    logger.exception(msg, polissa['name'], str(e))
+#                    em.logout()
+#                    em = setup_empowering_api()
+#                    continue
+#                is_new_contract = True
+#                last_updated = '0'
+
+#            building_id = O.EmpoweringCupsBuilding.search([('cups_id', '=', polissa['cups'][0])])
+
+#            if building_id:
+#                w_date = O.EmpoweringCupsBuilding.perm_read(building_id)[0]['write_date']
+#                if w_date > last_updated:
+#                    modcon_id = polissa['modcontractual_activa'][0]
+#                    modcons_to_update.append(modcon_id)
+
+            if not is_new_contract:
+                modcons_id = O.GiscedataPolissaModcontractual.search([('polissa_id','=',polissa['id']), ('active','=',True)])
+                for modcon_id in modcons_id:
+                    w_date = O.GiscedataPolissaModcontractual.perm_read(modcon_id)[0]['write_date']
+                    if w_date > polissa['empowering_last_update']:
+                        logger.info('La modcontractual %d a actualitzar write_'
+                                    'date: %s last_update: %s' % (
+                            modcon_id, w_date, polissa['empowering_last_update']))
+                        modcons_to_update.append(modcon_id)
+                        continue
+
+                # Workaround to identify new meter scenarios. Not checking meter
+                # dateStart in order to prevent ERP overload. Just checking amount
+                # of meters related to a contract
+#                if (contract is not None and 'devices' in contract and
+#                    len(contract['devices']) != len(polissa['comptadors'])):
+#                    modcon_id = polissa['modcontractual_activa'][0]
+#                    modcons_to_update.append(modcon_id)
+
+            modcons_to_update = list(set(modcons_to_update))
+            if modcons_to_update:
+                msg = 'Polissa %s actualitzada a %s després de %s'
+                logger.info(msg, polissa['name'], w_date, last_updated)
+                msg = "Encolando task push_modcontracts, polissa %s"
+                logger.info(msg, polissa['name'])
+                etag = polissa['etag']
+                job = q.enqueue_call(
+                    func=em_tasks.push_modcontracts,
+                    args=(modcons_to_update, etag,)
+                )
+                tasks.append(job)
+
+
 
         except xmlrpclib.ProtocolError as e:
             msg = "Ha ocurrido un error inesperado con la conexión al ERP, " \
