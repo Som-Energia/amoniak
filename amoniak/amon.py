@@ -304,7 +304,7 @@ class AmonConverter(object):
 
         fields_to_read =  ['buildingConstructionYear', 'dwellingArea', 'propertyType', 'buildingType', 'dwellingPositionInBuilding',
                            'dwellingOrientation', 'buildingWindowsType', 'buildingWindowsFrame',
-                           'buildingCoolingSource', 'buildingHeatingSource', 'buildingHeatingSourceDhw',
+                           'buildingCoolingSource', #'buildingHeatingSource', 'buildingHeatingSourceDhw',
                            'buildingSolarSystem']
         building = building_obj.read(building_id)
 
@@ -770,6 +770,8 @@ class AmonConverter(object):
 def check_response(response, amon_data):
     logger.debug('Handlers: %s Class: %s' % (logger.handlers, logger))
     if response['_status'] != 'OK':
+        if response['_code'] == 412:
+            return 412
         content = '%s%s' % (json.dumps(amon_data), json.dumps(response))
         hash = sha1(content).hexdigest()[:8]
         logger.error(

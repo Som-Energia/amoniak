@@ -1,13 +1,13 @@
 import logging
+import urllib2
 from datetime import datetime
 
+import libsaas
 import pymongo
 from raven import Client
 
 from .amon import AmonConverter, check_response, get_device_serial
-from .utils import (
-    setup_empowering_api, setup_mongodb, setup_peek, sorted_by_key
-)
+from .utils import setup_empowering_api, setup_mongodb, setup_peek, sorted_by_key
 
 sentry = Client()
 logger = logging.getLogger('amon')
@@ -81,20 +81,38 @@ class EmpoweringTasks(object):
         """
         amon = AmonConverter(self._O)
         fields_to_read = ['data_inici', 'polissa_id']
-        modcons = self._O.GiscedataPolissaModcontractual.read(modcons, fields_to_read)
-        modcons = sorted_by_key(modcons, 'data_inici')
-        for modcon in modcons:
+        modcons_data = self._O.GiscedataPolissaModcontractual.read(modcons, fields_to_read)
+        modcons_data = sorted_by_key(modcons_data, 'data_inici')
+        for modcon in modcons_data:
             amon_data = amon.contract_to_amon(
                 modcon['polissa_id'][0],
                 {'modcon_id': modcon['id']}
             )[0]
             msg = "Actualizando polissa %s, etag %s"
             logger.info(msg, modcon['polissa_id'][1], etag)
-            response = self._em.contract(modcon['polissa_id'][1]).update(amon_data, etag)
-            if check_response(response, amon_data):
-                etag = response['_etag']
-                writedate = self._O.GiscedataPolissaModcontractual.perm_read([modcon['id']])[0]['write_date']
-                self._O.GiscedataPolissa.write(modcon['polissa_id'][0], {'etag': etag, 'empowering_last_update': writedate})
+            try:
+                response = self._em.contract(modcon['polissa_id'][1]).update(amon_data, etag)
+                response_code = check_response(response, amon_data)
+                if response_code:
+                    print 'se actualiza la fecha empowering_last_update %s', self._O.GiscedataPolissa.read(modcon['polissa_id'][0],['empowering_last_update'])
+                    etag = response['_etag']
+                    writedate = self._O.GiscedataPolissaModcontractual.perm_read([modcon['id']])[0]['write_date']
+                    self._O.GiscedataPolissa.write(modcon['polissa_id'][0], {'etag': etag, 'empowering_last_update': writedate})
+            except (libsaas.http.HTTPError, urllib2.HTTPError) as e:
+               if e.code == 412:
+                    polissa_name = self._O.GiscedataPolissa.read(modcon['polissa_id'][1], ['name'])
+                    contract_beedata = self._em.contract(polissa_name['name']).get()
+                    etag_beedata = contract_beedata['_etag']
+                    self._O.GiscedataPolissa.write(polissa_name['id'], {'etag': etag_beedata})
+                    msg = "El etag %s de la poliza %s se ha actualizado"
+                    logger.exception(msg, etag_beedata, polissa_name['name'])
+                    self.push_modcontracts(modcons, etag_beedata)
+               elif e.code != 404:
+                   msg = "Error obteniendo informacion de la mod %s: %s"
+                   logger.exception(msg,  modcon['polissa_id'][1], str(e))
+                   self._em.logout()
+                   self._em = setup_empowering_api()
+                   continue
 
     @sentry.capture_exceptions
     def push_contracts(self, contracts_id):
@@ -125,13 +143,16 @@ class EmpoweringTasks(object):
                         writedate = self._O.GiscedataPolissaModcontractual.perm_read([modcon_id])[0]['write_date']
                         self._O.GiscedataPolissa.write(cid, {'empowering_last_update': writedate})
             except Exception as e:
+                print 'no se ha podido subir el contrato:', pol['name'], str(e)
                 logger.info("Exception id: %s %s" % (pol['name'], str(e)))
                 continue
             if upd:
                 etag = str(upd[-1]['_etag'])
+                print "Polissa id: %s -> etag %s" % (pol['name'], etag)
                 logger.info("Polissa id: %s -> etag %s" % (pol['name'], etag))
                 self._O.GiscedataPolissa.write(cid, {'etag': etag})
             else:
+                print "Polissa id: %s no etag found" % (pol['name'])
                 logger.info("Polissa id: %s no etag found" % (pol['name']))
 
     @sentry.capture_exceptions

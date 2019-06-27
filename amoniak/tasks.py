@@ -143,19 +143,6 @@ def enqueue_measures(tg_enabled=True, polisses_ids=[], bucket=500):
                 measures_ids = O.TgBilling.search(search_params, limit=0, order="date_end asc")
             else:
                 search_params.append(('origen_id', 'in', origen_ids))
-
-                #origen_comer_to_search = [
-                #    'Fitxer de lectures Q1',
-                #    'Fitxer de factura F1',
-                #    'Entrada manual',
-                #    'Oficina Virtual',
-                #    'Autolectura',
-                #    'Estimada',
-                #    'Gestió ATR'
-                #]
-                #origen_comer_ids = O.GiscedataLecturesOrigenComer.search([('name','in',origen_comer_to_search)])
-                #search_params.append(('origen_comer_id', 'in', origen_comer_ids))
-
                 measures_ids = O.GiscedataLecturesLectura.search(search_params, limit=0, order="name asc")
             logger.info("S'han trobat %s mesures per pujar\n" % len(measures_ids))
             popper.push(measures_ids)
@@ -186,12 +173,6 @@ def enqueue_new_contracts(tg_enabled, polisses_ids=[], bucket=500):
         '2.0A', '2.0DHA', '2.0DHS', '2.1A', '2.1DHA', '2.1DHS'
     ]
     search_params.append(('polissa.tarifa.name', 'in', residential_tariffs))
-
-    # NOTE: Remove online update, use deferred one
-    # items = em.contracts().get(sort="[('_updated', -1)]")['_items']
-    # if items:
-    #    from_date = make_local_timestamp(items[0]['_updated'])
-    #    search_params.append(('polissa.create_date', '>', from_date))
 
     # Enable to force 180 days backwards check instead of online checking
     from_date = (date.today() - timedelta(days=180)).strftime('%Y-%m-%d')
@@ -259,8 +240,8 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
             if not polissa['empowering_last_update']:
                 is_new_contract = True
             if is_new_contract:
-                logger.info("La polissa %s te etag pero ha estat borrada "
-                            "d'empowering, es torna a pujar" % polissa['name'])
+                logger.info("La polissa %s no te la data de pujada informada,"
+                            "es torna a pujar" % polissa['name'])
                 msg = "Encolando task push_contracts, polissa %s"
                 logger.info(msg, polissa['name'])
                 job = q.enqueue_call(
@@ -271,29 +252,8 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
                 continue
 
 
-            if writedate <= polissa['empowering_last_update']: #to do: if not empowering_last_update
+            if writedate <= polissa['empowering_last_update']:
                 continue
-##            try:
-#                contract = em.contract(polissa['name']).get()
-#                last_updated = contract['_updated']
-#                last_updated = make_local_timestamp(last_updated)
-#            except (libsaas.http.HTTPError, urllib2.HTTPError) as e:
-#                if e.code != 404:
-#                    msg = "Error obteniendo informacion de la poliza %s: %s"
-#                    logger.exception(msg, polissa['name'], str(e))
-#                    em.logout()
-#                    em = setup_empowering_api()
-#                    continue
-#                is_new_contract = True
-#                last_updated = '0'
-
-#            building_id = O.EmpoweringCupsBuilding.search([('cups_id', '=', polissa['cups'][0])])
-
-#            if building_id:
-#                w_date = O.EmpoweringCupsBuilding.perm_read(building_id)[0]['write_date']
-#                if w_date > last_updated:
-#                    modcon_id = polissa['modcontractual_activa'][0]
-#                    modcons_to_update.append(modcon_id)
 
             if not is_new_contract:
                 modcons_id = O.GiscedataPolissaModcontractual.search([('polissa_id','=',polissa['id']), ('active','=',True)])
@@ -306,18 +266,10 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
                         modcons_to_update.append(modcon_id)
                         continue
 
-                # Workaround to identify new meter scenarios. Not checking meter
-                # dateStart in order to prevent ERP overload. Just checking amount
-                # of meters related to a contract
-#                if (contract is not None and 'devices' in contract and
-#                    len(contract['devices']) != len(polissa['comptadors'])):
-#                    modcon_id = polissa['modcontractual_activa'][0]
-#                    modcons_to_update.append(modcon_id)
-
             modcons_to_update = list(set(modcons_to_update))
             if modcons_to_update:
-                msg = 'Polissa %s actualitzada a %s després de %s'
-                logger.info(msg, polissa['name'], w_date, last_updated)
+                msg = "Polissa %s actualitzada a %s després de %s"
+                logger.info(msg, polissa['name'], w_date, polissa['empowering_last_update'])
                 msg = "Encolando task push_modcontracts, polissa %s"
                 logger.info(msg, polissa['name'])
                 etag = polissa['etag']
@@ -327,8 +279,6 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
                 )
                 tasks.append(job)
 
-
-
         except xmlrpclib.ProtocolError as e:
             msg = "Ha ocurrido un error inesperado con la conexión al ERP, " \
                   "poliza %s: %s"
@@ -336,7 +286,6 @@ def enqueue_contracts(tg_enabled, contracts_id=[]):
         except (libsaas.http.HTTPError, urllib2.HTTPError) as e:
             msg = "Error inesperado con la conexión con BEEDATA: %s"
             logger.exception(msg, str(e))
-            raise e
 
     failed_tasks = _check_failed_tasks(tasks)
     errors = [
