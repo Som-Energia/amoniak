@@ -5,4 +5,3 @@ except Exception, e:
     VERSION = 'unknown'
 
 from .amon import *
-from .empowering_tasks import *

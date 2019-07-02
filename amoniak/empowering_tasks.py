@@ -7,7 +7,9 @@ import pymongo
 from raven import Client
 
 from .amon import AmonConverter, check_response, get_device_serial
-from .utils import setup_empowering_api, setup_mongodb, setup_peek, sorted_by_key
+from .utils import (
+        setup_empowering_api, setup_mongodb, setup_peek, sorted_by_key
+)
 
 sentry = Client()
 logger = logging.getLogger('amon')
@@ -98,6 +100,10 @@ class EmpoweringTasks(object):
                     etag = response['_etag']
                     writedate = self._O.GiscedataPolissaModcontractual.perm_read([modcon['id']])[0]['write_date']
                     self._O.GiscedataPolissa.write(modcon['polissa_id'][0], {'etag': etag, 'empowering_last_update': writedate})
+                    logger.info("push_modcontracts: S'ha actualitzat la data empowering_last_update: ", str(writedate))
+                else:
+                    logger.info("push_modcontracts: Error en la response de Beedata: ", str(response_code))
+                    print "push_modcontracts: resonse incorrecte de beedata", response_code
             except (libsaas.http.HTTPError, urllib2.HTTPError) as e:
                if e.code == 412:
                     polissa_name = self._O.GiscedataPolissa.read(modcon['polissa_id'][1], ['name'])
@@ -116,6 +122,8 @@ class EmpoweringTasks(object):
 
     @sentry.capture_exceptions
     def push_contracts(self, contracts_id):
+        print "Estem al worker push_contracts", str(contracts_id)
+        logger.info("Estem al worker empowering_tasks.push_contracts: ", str(contracts_id))
         amon = AmonConverter(self._O)
 
         if not isinstance(contracts_id, (list, tuple)):
@@ -142,6 +150,11 @@ class EmpoweringTasks(object):
                         upd.append(response)
                         writedate = self._O.GiscedataPolissaModcontractual.perm_read([modcon_id])[0]['write_date']
                         self._O.GiscedataPolissa.write(cid, {'empowering_last_update': writedate})
+                        logger.info("push_contracts: S'ha actualitzat la data empowering_last_update: ", str(writedate))
+                        print "push_contracts: S'ha actualitzat la data empowering_last_update: ", str(writedate)
+                    else:
+                        logger.info("push_contracts: Error en la response de Beedata: ", str(response))
+                        print "push_contracts: response incorrecte de beedata: ", str(response)
             except Exception as e:
                 print 'no se ha podido subir el contrato:', pol['name'], str(e)
                 logger.info("Exception id: %s %s" % (pol['name'], str(e)))
